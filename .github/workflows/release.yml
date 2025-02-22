@@ -61,7 +61,7 @@ jobs:
             # PM2の起動（初回のみ start、それ以降 reload）
             cd /var/www/${DOMAIN}/current
             if ! pm2 describe ${DOMAIN} > /dev/null; then
-              pm2 start index.js --env production --name ${DOMAIN}
+              pm2 start index.cjs --env production --name ${DOMAIN}
             else
               pm2 restart ${DOMAIN}
             fi
