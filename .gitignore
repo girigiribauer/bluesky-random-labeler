@@ -1,0 +1,24 @@
+# deps
+node_modules/
+.npmrc
+
+# env
+.env
+.env.production
+
+# logs
+logs/
+*.log
+npm-debug.log*
+
+# misc
+.DS_Store
+
+# build
+dist/
+*.tsbuildinfo
+
+# SQLite
+labels.db
+labels.db-shm
+labels.db-wal
