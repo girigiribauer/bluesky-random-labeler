@@ -1,0 +1,72 @@
+name: Release Node App
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Node.js のセットアップ
+        uses: actions/setup-node@v3
+        with:
+          node-version: "22"
+
+      - name: 依存関係のインストールとビルド
+        run: |
+          npm ci
+          npm run build
+
+      - name: リリースディレクトリ名を時刻から作成
+        id: timestamp
+        run: echo "RELEASE_TIMESTAMP=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_ENV
+
+      - name: Deploy
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DOMAIN: ${{ secrets.DOMAIN }}
+          RELEASE_TIMESTAMP: ${{ env.RELEASE_TIMESTAMP }}
+          SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
+        run: |
+          # SSH キーの設定
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+          # rsync でカスタムポートを指定してアップロード
+          rsync -avz --delete --exclude '.git*' -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=no" ./dist/ ubuntu@${{ secrets.VPS_IP }}:/var/www/${{ secrets.DOMAIN }}/releases/${{ env.RELEASE_TIMESTAMP }}
+
+      - name: シンボリックリンクの貼り替え
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DOMAIN: ${{ secrets.DOMAIN }}
+          RELEASE_TIMESTAMP: ${{ env.RELEASE_TIMESTAMP }}
+          SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
+        run: |
+          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "ln -snf /var/www/${{ secrets.DOMAIN }}/releases/${{ env.RELEASE_TIMESTAMP }} /var/www/${{ secrets.DOMAIN }}/current"
+
+      - name: PM2 の再起動
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DOMAIN: ${{ secrets.DOMAIN }}
+          SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
+        run: |
+          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} << EOF
+            # PM2の起動（初回のみ start、それ以降 reload）
+            cd /var/www/${DOMAIN}/current
+            if ! pm2 describe ${DOMAIN} > /dev/null; then
+              pm2 start index.js --env production --name ${DOMAIN}
+            else
+              pm2 restart ${DOMAIN}
+            fi
+          EOF
+
+      - name: 秘密鍵の削除
+        if: always()
+        run: rm -f ~/.ssh/id_rsa
