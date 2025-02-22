@@ -1,5 +1,5 @@
 {
-  "name": "bluesky-toybox",
+  "name": "bluesky-random-labeler",
   "version": "0.0.1",
   "description": "",
   "author": "girigiribauer",
@@ -8,7 +8,7 @@
   "type": "module",
   "scripts": {
     "start": "node dist/index.cjs",
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/index.cjs",
+    "build": "node esbuild.config.cjs",
     "test": "npm run test -ws --if-present",
     "dev": "tsx watch src/index.ts"
   },
