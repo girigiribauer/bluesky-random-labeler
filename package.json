@@ -13,11 +13,11 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
+    "@libsql/client": "^0.14.0",
     "@skyware/bot": "^0.3.8",
     "@skyware/labeler": "^0.2.0",
     "dotenv": "^16.4.7",
-    "hono": "^4.7.2",
-    "libsql": "^0.5.0-pre.6"
+    "hono": "^4.7.2"
   },
   "devDependencies": {
     "@hono/node-server": "^1.13.8",

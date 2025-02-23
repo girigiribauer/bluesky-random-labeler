@@ -20,7 +20,7 @@ jobs:
 
       - name: 依存関係のインストールとビルド
         run: |
-          npm install --platform=linux
+          npm ci
           npm run build
 
       - name: リリースディレクトリ名を時刻から作成
