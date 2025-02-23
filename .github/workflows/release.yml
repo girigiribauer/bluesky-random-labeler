@@ -26,9 +26,9 @@ jobs:
 
       - name: env ファイルの作成
         run: |
-          echo "LABELER_DID=${{ secrets.LABELER_DID }}" >> .env
-          echo "LABELER_PASSWORD=${{ secrets.LABELER_PASSWORD }}" >> .env
-          echo "SIGNING_KEY=${{ secrets.SIGNING_KEY }}" >> .env
+          echo "LABELER_DID=${{ secrets.LABELER_DID }}" >> dist/.env
+          echo "LABELER_PASSWORD=${{ secrets.LABELER_PASSWORD }}" >> dist/.env
+          echo "SIGNING_KEY=${{ secrets.SIGNING_KEY }}" >> dist/.env
 
       - name: リリースディレクトリ名を時刻から作成
         id: timestamp
