@@ -21,6 +21,7 @@ jobs:
       - name: 依存関係のインストールとビルド
         run: |
           npm ci
+          npm rebuild @libsql/client # 実行時パッケージ不足になるので
           npm run build
 
       - name: リリースディレクトリ名を時刻から作成
