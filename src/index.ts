@@ -10,6 +10,7 @@ import { Bot, Profile } from "@skyware/bot";
     signingKey: process.env.SIGNING_KEY ?? "",
   });
 
+  console.log(server.did);
   server.start(4000, (error) => {
     if (error) {
       console.error("Failed to start server:", error);
@@ -17,12 +18,15 @@ import { Bot, Profile } from "@skyware/bot";
       console.log("Labeler server running on port 4000");
     }
   });
+  console.log("server started");
 
   const bot = new Bot();
   await bot.login({
     identifier: process.env.LABELER_DID ?? "",
     password: process.env.LABELER_PASSWORD ?? "",
   });
+  console.log("bot logined");
+  server.app.setChildLoggerFactory;
 
   // TODO: データベースをなくした際にフォローしてるけどラベルがない、みたいな状態になるのをなんとかする
 
@@ -33,8 +37,10 @@ import { Bot, Profile } from "@skyware/bot";
     user: Profile;
     uri: string;
   }): void => {
-    console.log(uri);
-    user.labelAccount(["i-am-making-a-labeler"]);
+    console.log("follow", uri);
+    user.labelProfile(["i-am-making-a-labeler"]);
+    user.negateAccountLabels(["i-am-making-a-labeler"]);
+    // user.labelAccount(["i-am-making-a-labeler"]);
   };
 
   bot.on("follow", followHandler);
