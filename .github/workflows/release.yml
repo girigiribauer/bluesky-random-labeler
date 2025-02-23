@@ -24,6 +24,12 @@ jobs:
           npm run build
           cp -r node_modules dist/.
 
+      - name: env ファイルの作成
+        run: |
+          echo "LABELER_DID=${{ secrets.LABELER_DID }}" >> .env
+          echo "LABELER_PASSWORD=${{ secrets.LABELER_PASSWORD }}" >> .env
+          echo "SIGNING_KEY=${{ secrets.SIGNING_KEY }}" >> .env
+
       - name: リリースディレクトリ名を時刻から作成
         id: timestamp
         run: echo "RELEASE_TIMESTAMP=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_ENV
