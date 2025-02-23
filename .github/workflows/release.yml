@@ -21,9 +21,8 @@ jobs:
       - name: 依存関係のインストールとビルド
         run: |
           npm ci
-          npm i @libsql/linux-x64-gnu
           npm run build
-          ls node_modules
+          cp -r node_modules dist/.
 
       - name: リリースディレクトリ名を時刻から作成
         id: timestamp

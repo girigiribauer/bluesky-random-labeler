@@ -4,6 +4,7 @@ esbuild
   .build({
     entryPoints: ["src/index.ts"],
     bundle: true,
+    packages: "external",
     platform: "node",
     target: "node22",
     format: "cjs",
