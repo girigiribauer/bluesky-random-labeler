@@ -21,7 +21,6 @@ jobs:
       - name: 依存関係のインストールとビルド
         run: |
           npm ci
-          ls -l node_modules
           ls -l node_modules/@libsql | grep linux
           npm run build
 
