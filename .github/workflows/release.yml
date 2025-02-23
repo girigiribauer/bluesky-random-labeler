@@ -23,7 +23,7 @@ jobs:
           npm ci
           npm i @libsql/linux-x64-gnu
           npm run build
-          ls -la node_modules | grep linux-x64-gnu
+          ls node_modules
 
       - name: リリースディレクトリ名を時刻から作成
         id: timestamp
