@@ -11,7 +11,7 @@ import { Bot, Profile } from "@skyware/bot";
     dbPath: ":memory:",
   });
 
-  server.start(4000, (error) => {
+  server.start({ port: 4000, host: "0.0.0.0" }, (error) => {
     if (error) {
       console.error("Failed to start server:", error);
     } else {
