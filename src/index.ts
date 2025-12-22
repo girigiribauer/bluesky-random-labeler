@@ -71,7 +71,7 @@ function getDailyFortune(did: string): string {
     }
 
     return res.send({
-      cursor: "0",
+      cursor: Date.now().toString(),
       labels,
     });
   };
