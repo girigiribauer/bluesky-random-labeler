@@ -7,7 +7,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node dist/index.cjs",
+    "start": "node dist/index.mjs",
     "build": "node esbuild.config.cjs",
     "test": "npm run test -ws --if-present",
     "dev": "tsx watch src/index.ts"
