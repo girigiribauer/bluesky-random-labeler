@@ -9,6 +9,9 @@ jobs:
   release:
     runs-on: ubuntu-latest
 
+    env:
+      PATH_PREFIX: /var/www/
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -47,7 +50,7 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
 
           # rsync でカスタムポートを指定してアップロード
-          rsync -avz --delete --exclude '.git*' -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=no" ./dist/ ubuntu@${{ secrets.VPS_IP }}:/var/www/${{ secrets.DOMAIN }}/releases/${{ env.RELEASE_TIMESTAMP }}
+          rsync -avz --delete --exclude '.git*' -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=no" ./dist/ ubuntu@${{ secrets.VPS_IP }}:${{ env.PATH_PREFIX }}${{ secrets.DOMAIN }}/releases/${{ env.RELEASE_TIMESTAMP }}
 
       - name: シンボリックリンクの貼り替え
         env:
@@ -56,23 +59,22 @@ jobs:
           RELEASE_TIMESTAMP: ${{ env.RELEASE_TIMESTAMP }}
           SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
-          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "ln -snf /var/www/${{ secrets.DOMAIN }}/releases/${{ env.RELEASE_TIMESTAMP }} /var/www/${{ secrets.DOMAIN }}/current"
+          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "ln -snf ${{ env.PATH_PREFIX }}${{ secrets.DOMAIN }}/releases/${{ env.RELEASE_TIMESTAMP }} ${{ env.PATH_PREFIX }}${{ secrets.DOMAIN }}/current"
 
-      - name: PM2 の再起動
+      - name: Dockerコンテナの再起動
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
+        run: |
+          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "docker restart random-labeler_bsky_girigiribauer_com_app"
+
+      - name: 古いリリースを削除 (最新5つを残す)
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           DOMAIN: ${{ secrets.DOMAIN }}
           SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
-          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} << EOF
-            # PM2の起動（初回のみ start、それ以降 reload）
-            cd /var/www/${DOMAIN}/current
-            if ! pm2 describe ${DOMAIN} > /dev/null; then
-              pm2 start index.cjs --env production --name ${DOMAIN}
-            else
-              pm2 restart ${DOMAIN}
-            fi
-          EOF
+          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "cd ${{ env.PATH_PREFIX }}${{ secrets.DOMAIN }}/releases && ls -t | tail -n +6 | xargs -r rm -rf"
 
       - name: 秘密鍵の削除
         if: always()

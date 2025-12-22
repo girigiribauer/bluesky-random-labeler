@@ -8,9 +8,9 @@ import { Bot, Profile } from "@skyware/bot";
   const server = new LabelerServer({
     did: process.env.LABELER_DID ?? "",
     signingKey: process.env.SIGNING_KEY ?? "",
+    dbPath: ":memory:",
   });
 
-  console.log(server.did);
   server.start(4000, (error) => {
     if (error) {
       console.error("Failed to start server:", error);
@@ -18,37 +18,30 @@ import { Bot, Profile } from "@skyware/bot";
       console.log("Labeler server running on port 4000");
     }
   });
-  console.log("server started");
 
-  const bot = new Bot();
-  await bot.login({
-    identifier: process.env.LABELER_DID ?? "",
-    password: process.env.LABELER_PASSWORD ?? "",
-  });
-  console.log("bot logined");
-  server.app.setChildLoggerFactory;
+  server.queryLabelsHandler = async (req: any, res: any) => {
+    const { uriPatterns } = req.query;
+    const labels = [];
 
-  // TODO: データベースをなくした際にフォローしてるけどラベルがない、みたいな状態になるのをなんとかする
+    if (uriPatterns) {
+      const subjects = Array.isArray(uriPatterns) ? uriPatterns : [uriPatterns];
 
-  const followHandler = ({
-    uri,
-    user,
-  }: {
-    user: Profile;
-    uri: string;
-  }): void => {
-    console.log("follow", uri);
-    user.labelProfile(["i-am-making-a-labeler"]);
-    user.negateAccountLabels(["i-am-making-a-labeler"]);
-    // user.labelAccount(["i-am-making-a-labeler"]);
+      for (const uri of subjects) {
+        try {
+          const label = await server.createLabel({
+            uri,
+            val: "cool-cat",
+          });
+          labels.push(label);
+        } catch (e) {
+          console.error(`Failed to create label for ${uri}`, e);
+        }
+      }
+    }
+
+    return res.send({
+      cursor: "0",
+      labels,
+    });
   };
-
-  bot.on("follow", followHandler);
-  bot.off("follow", followHandler);
-
-  // CLIじゃなく実行中のラベラーサーバーから追加できるかテスト
-  server.createLabel({
-    uri: process.env.LABELER_DID ?? "",
-    val: "cool-cat",
-  });
 })();
