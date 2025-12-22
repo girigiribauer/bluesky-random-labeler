@@ -1,6 +1,34 @@
 import dotenv from "dotenv";
 import { LabelerServer } from "@skyware/labeler";
-import { Bot, Profile } from "@skyware/bot";
+import { createHash } from "node:crypto";
+
+const FORTUNES = [
+  { val: "daikichi", threshold: 6 },   // 6%
+  { val: "kichi", threshold: 28 },  // 22% (+6)
+  { val: "chukichi", threshold: 50 },  // 22% (+28)
+  { val: "shokichi", threshold: 70 },  // 20% (+50)
+  { val: "suekichi", threshold: 88 },  // 18% (+70)
+  { val: "kyo", threshold: 97 },  // 9%  (+88)
+  { val: "daikyo", threshold: 100 }, // 3%  (+97)
+];
+
+function getDailyFortune(did: string): string {
+  const jstNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+  const dateStr = jstNow.toISOString().split("T")[0];
+
+  const seed = did + dateStr;
+
+  const hash = createHash("sha256").update(seed).digest();
+
+  const val = hash.readUInt32BE(0) % 100;
+
+  for (const fortune of FORTUNES) {
+    if (val < fortune.threshold) {
+      return fortune.val;
+    }
+  }
+  return "kichi";
+}
 
 (async () => {
   dotenv.config();
@@ -28,9 +56,12 @@ import { Bot, Profile } from "@skyware/bot";
 
       for (const uri of subjects) {
         try {
+          const fortune = getDailyFortune(uri);
+          console.log(`Providing fortune for ${uri}: ${fortune}`);
+
           const label = await server.createLabel({
             uri,
-            val: "cool-cat",
+            val: fortune,
           });
           labels.push(label);
         } catch (e) {
