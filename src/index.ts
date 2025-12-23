@@ -1,6 +1,9 @@
 import dotenv from "dotenv";
 import { LabelerServer } from "@skyware/labeler";
 import { createHash } from "node:crypto";
+import { serve } from "@hono/node-server";
+import { Hono } from "hono";
+import { WebSocketServer } from "ws";
 
 const FORTUNES = [
   { val: "daikichi", threshold: 6 },   // 6%
@@ -30,51 +33,80 @@ function getDailyFortune(did: string): string {
   return "kichi";
 }
 
-(async () => {
-  dotenv.config();
+dotenv.config();
 
-  const server = new LabelerServer({
-    did: process.env.LABELER_DID ?? "",
-    signingKey: process.env.SIGNING_KEY ?? "",
-    dbPath: ":memory:",
-  });
+const app = new Hono();
 
-  server.start({ port: 4000, host: "0.0.0.0" }, (error) => {
-    if (error) {
-      console.error("Failed to start server:", error);
-    } else {
-      console.log("Labeler server running on port 4000");
-    }
-  });
+const labeler = new LabelerServer({
+  did: process.env.LABELER_DID ?? "",
+  signingKey: process.env.SIGNING_KEY ?? "",
+  dbPath: ":memory:",
+});
 
-  server.queryLabelsHandler = async (req: any, res: any) => {
-    console.log("Received queryLabels request:", req.query);
+// HTTP: queryLabels
+app.get("/xrpc/com.atproto.label.queryLabels", async (c) => {
+  console.log("Received queryLabels");
 
-    const { uriPatterns } = req.query;
-    const labels = [];
+  const labels = [];
 
-    if (uriPatterns) {
-      const subjects = Array.isArray(uriPatterns) ? uriPatterns : [uriPatterns];
+  // Hono handles query params slightly differently, but ?uriPatterns=a&uriPatterns=b works naturally if we access it right.
+  // c.req.queries('uriPatterns') returns string[] | undefined
+  const patterns = c.req.queries('uriPatterns');
 
-      for (const uri of subjects) {
-        try {
-          const fortune = getDailyFortune(uri);
-          console.log(`Providing fortune for ${uri}: ${fortune}`);
+  if (patterns && patterns.length > 0) {
+    console.log("Received queryLabels request:", patterns);
 
-          const label = await server.createLabel({
-            uri,
-            val: fortune,
-          });
-          labels.push(label);
-        } catch (e) {
-          console.error(`Failed to create label for ${uri}`, e);
-        }
+    for (const uri of patterns) {
+      try {
+        const fortune = getDailyFortune(uri);
+        console.log(`Providing fortune for ${uri}: ${fortune}`);
+
+        const label = await labeler.createLabel({
+          uri,
+          val: fortune,
+        });
+        labels.push(label);
+      } catch (e) {
+        console.error(`Failed to create label for ${uri}`, e);
       }
     }
+  }
 
-    return res.send({
-      cursor: Date.now().toString(),
-      labels,
-    });
-  };
-})();
+  return c.json({
+    cursor: Date.now().toString(),
+    labels,
+  });
+});
+
+// Provide a health check or root
+app.get("/", (c) => c.text("Omikuji Labeler is running."));
+
+const port = 4000;
+console.log(`Labeler server running on port ${port}`);
+
+const server = serve({
+  fetch: app.fetch,
+  port,
+  hostname: "0.0.0.0"
+});
+
+// WebSocket: subscribeLabels (Dummy Firehose)
+const wss = new WebSocketServer({ server: server as any, path: "/xrpc/com.atproto.label.subscribeLabels" });
+
+wss.on("connection", (ws) => {
+  console.log("New WebSocket subscription connected!");
+
+  // Optional: Send an empty cursor or header frame if needed,
+  // but keeping it open is usually enough for the handshake.
+  // We can send a ping periodically to keep it alive.
+  const interval = setInterval(() => {
+    if (ws.readyState === ws.OPEN) {
+      ws.ping();
+    }
+  }, 30000);
+
+  ws.on("close", () => {
+    clearInterval(interval);
+    console.log("WebSocket subscription closed");
+  });
+});
