@@ -70,7 +70,6 @@ app.get("/xrpc/com.atproto.label.queryLabels", async (c) => {
   }
 
   return c.json({
-    cursor: Date.now().toString(),
     labels,
   });
 });
