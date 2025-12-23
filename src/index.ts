@@ -48,6 +48,8 @@ function getDailyFortune(did: string): string {
   });
 
   server.queryLabelsHandler = async (req: any, res: any) => {
+    console.log("Received queryLabels request:", req.query);
+
     const { uriPatterns } = req.query;
     const labels = [];
 
