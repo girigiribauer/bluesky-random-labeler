@@ -118,7 +118,7 @@ function startMidnightScheduler() {
   }, 60000);
 }
 
-labeler.start(PORT, (error) => {
+labeler.start({ port: PORT, host: "0.0.0.0" }, (error) => {
   if (error) {
     console.error("Failed to start server", error);
   } else {
