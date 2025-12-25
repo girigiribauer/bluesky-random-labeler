@@ -1,10 +1,10 @@
 import dotenv from "dotenv";
 import { LabelerServer } from "@skyware/labeler";
 import { Bot } from "@skyware/bot";
-import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+import { getDailyFortune } from "./fortune.js";
 
 dotenv.config();
 
@@ -13,31 +13,6 @@ const DB_PATH = process.env.DB_PATH || "data/labels.db";
 const dataDir = path.dirname(DB_PATH);
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
-}
-
-const FORTUNES = [
-  { val: "daikichi", threshold: 6 },   // 6%
-  { val: "kichi", threshold: 28 },     // 22%
-  { val: "chukichi", threshold: 50 },  // 22%
-  { val: "shokichi", threshold: 70 },  // 20%
-  { val: "suekichi", threshold: 88 },  // 18%
-  { val: "kyo", threshold: 97 },       // 9%
-  { val: "daikyo", threshold: 100 },   // 3%
-];
-
-function getDailyFortune(did: string): string {
-  const jstNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
-  const dateStr = jstNow.toISOString().split("T")[0];
-  const seed = did + dateStr;
-  const hash = createHash("sha256").update(seed).digest();
-  const val = hash.readUInt32BE(0) % 100;
-
-  for (const fortune of FORTUNES) {
-    if (val < fortune.threshold) {
-      return fortune.val;
-    }
-  }
-  return "kichi";
 }
 
 const labeler = new LabelerServer({

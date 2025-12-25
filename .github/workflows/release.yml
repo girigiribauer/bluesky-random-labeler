@@ -29,9 +29,9 @@ jobs:
 
       - name: env ファイルの作成
         run: |
-          echo "LABELER_DID=${{ secrets.LABELER_DID_2 }}" >> dist/.env
-          echo "LABELER_PASSWORD=${{ secrets.LABELER_PASSWORD_2 }}" >> dist/.env
-          echo "SIGNING_KEY=${{ secrets.SIGNING_KEY_2 }}" >> dist/.env
+          echo "LABELER_DID=${{ secrets.LABELER_DID }}" >> dist/.env
+          echo "LABELER_PASSWORD=${{ secrets.LABELER_PASSWORD }}" >> dist/.env
+          echo "SIGNING_KEY=${{ secrets.SIGNING_KEY }}" >> dist/.env
           echo "DB_PATH=/data/labels.db" >> dist/.env
 
       - name: リリースディレクトリ名を時刻から作成
@@ -41,7 +41,7 @@ jobs:
       - name: Deploy
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DOMAIN: ${{ secrets.DOMAIN_2 }}
+          DOMAIN: ${{ secrets.DOMAIN }}
           RELEASE_TIMESTAMP: ${{ env.RELEASE_TIMESTAMP }}
           SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
@@ -56,7 +56,7 @@ jobs:
       - name: シンボリックリンクの貼り替え
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DOMAIN: ${{ secrets.DOMAIN_2 }}
+          DOMAIN: ${{ secrets.DOMAIN }}
           RELEASE_TIMESTAMP: ${{ env.RELEASE_TIMESTAMP }}
           SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
@@ -67,12 +67,12 @@ jobs:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
-          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "docker restart random-labeler2_bsky_girigiribauer_com_app"
+          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "docker restart random-labeler_bsky_girigiribauer_com_app"
 
       - name: 古いリリースを削除 (最新5つを残す)
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DOMAIN: ${{ secrets.DOMAIN_2 }}
+          DOMAIN: ${{ secrets.DOMAIN }}
           SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
           ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "cd ${{ env.PATH_PREFIX }}${{ env.DOMAIN }}/releases && ls -t | tail -n +6 | xargs -r rm -rf"
