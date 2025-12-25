@@ -16,11 +16,13 @@
     "@libsql/client": "^0.14.0",
     "@skyware/bot": "^0.3.8",
     "@skyware/labeler": "^0.2.0",
+    "better-sqlite3": "^12.5.0",
     "dotenv": "^16.4.7",
     "hono": "^4.7.2"
   },
   "devDependencies": {
     "@hono/node-server": "^1.13.8",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.13.5",
     "esbuild-node-externals": "^1.18.0",
     "tsx": "^4.19.3",

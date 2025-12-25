@@ -29,9 +29,9 @@ jobs:
 
       - name: env ファイルの作成
         run: |
-          echo "LABELER_DID=${{ secrets.LABELER_DID }}" >> dist/.env
-          echo "LABELER_PASSWORD=${{ secrets.LABELER_PASSWORD }}" >> dist/.env
-          echo "SIGNING_KEY=${{ secrets.SIGNING_KEY }}" >> dist/.env
+          echo "LABELER_DID=${{ secrets.LABELER_DID_2 }}" >> dist/.env
+          echo "LABELER_PASSWORD=${{ secrets.LABELER_PASSWORD_2 }}" >> dist/.env
+          echo "SIGNING_KEY=${{ secrets.SIGNING_KEY_2 }}" >> dist/.env
 
       - name: リリースディレクトリ名を時刻から作成
         id: timestamp
@@ -40,7 +40,7 @@ jobs:
       - name: Deploy
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DOMAIN: ${{ secrets.DOMAIN }}
+          DOMAIN: ${{ secrets.DOMAIN_2 }}
           RELEASE_TIMESTAMP: ${{ env.RELEASE_TIMESTAMP }}
           SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
@@ -50,31 +50,31 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
 
           # rsync でカスタムポートを指定してアップロード
-          rsync -avz --delete --exclude '.git*' -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=no" ./dist/ ubuntu@${{ secrets.VPS_IP }}:${{ env.PATH_PREFIX }}${{ secrets.DOMAIN }}/releases/${{ env.RELEASE_TIMESTAMP }}
+          rsync -avz --delete --exclude '.git*' -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=no" ./dist/ ubuntu@${{ secrets.VPS_IP }}:${{ env.PATH_PREFIX }}${{ env.DOMAIN }}/releases/${{ env.RELEASE_TIMESTAMP }}
 
       - name: シンボリックリンクの貼り替え
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DOMAIN: ${{ secrets.DOMAIN }}
+          DOMAIN: ${{ secrets.DOMAIN_2 }}
           RELEASE_TIMESTAMP: ${{ env.RELEASE_TIMESTAMP }}
           SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
-          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "ln -snf ${{ env.PATH_PREFIX }}${{ secrets.DOMAIN }}/releases/${{ env.RELEASE_TIMESTAMP }} ${{ env.PATH_PREFIX }}${{ secrets.DOMAIN }}/current"
+          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "ln -snf ${{ env.PATH_PREFIX }}${{ env.DOMAIN }}/releases/${{ env.RELEASE_TIMESTAMP }} ${{ env.PATH_PREFIX }}${{ env.DOMAIN }}/current"
 
       - name: Dockerコンテナの再起動
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
-          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "docker restart random-labeler_bsky_girigiribauer_com_app"
+          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "docker restart random-labeler2_bsky_girigiribauer_com_app"
 
       - name: 古いリリースを削除 (最新5つを残す)
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DOMAIN: ${{ secrets.DOMAIN }}
+          DOMAIN: ${{ secrets.DOMAIN_2 }}
           SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
-          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "cd ${{ env.PATH_PREFIX }}${{ secrets.DOMAIN }}/releases && ls -t | tail -n +6 | xargs -r rm -rf"
+          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "cd ${{ env.PATH_PREFIX }}${{ env.DOMAIN }}/releases && ls -t | tail -n +6 | xargs -r rm -rf"
 
       - name: 秘密鍵の削除
         if: always()
