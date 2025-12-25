@@ -4,7 +4,7 @@ import { Bot } from "@skyware/bot";
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
-import { getDailyFortune } from "./fortune.js";
+import { getDailyFortune, FORTUNES } from "./fortune.js";
 
 dotenv.config();
 
@@ -24,18 +24,24 @@ const labeler = new LabelerServer({
 const db = new Database(DB_PATH);
 
 /**
- * ラベルを付与する
+ * 今日の運勢のラベルを付与する
  * @param did アクションを起こしたユーザーの DID
  */
 async function processUser(did: string) {
   const fortune = getDailyFortune(did);
+  const allFortunes = FORTUNES.map((f) => f.val);
+  const negate = allFortunes.filter((v) => v !== fortune);
+
   console.log(`Processing ${did}: ${fortune}`);
 
   try {
-    await labeler.createLabel({
-      uri: did,
-      val: fortune,
-    });
+    await labeler.createLabels(
+      { uri: did },
+      {
+        create: [fortune],
+        negate,
+      }
+    );
   } catch (e) {
     console.error(`Failed to label ${did}:`, e);
   }
