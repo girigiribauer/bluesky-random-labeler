@@ -32,6 +32,7 @@ jobs:
           echo "LABELER_DID=${{ secrets.LABELER_DID_2 }}" >> dist/.env
           echo "LABELER_PASSWORD=${{ secrets.LABELER_PASSWORD_2 }}" >> dist/.env
           echo "SIGNING_KEY=${{ secrets.SIGNING_KEY_2 }}" >> dist/.env
+          echo "DB_PATH=/data/labels.db" >> dist/.env
 
       - name: リリースディレクトリ名を時刻から作成
         id: timestamp
