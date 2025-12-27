@@ -1,19 +1,15 @@
 import Database from "better-sqlite3";
 import path from "node:path";
-import fs from "node:fs";
 
-const DB_PATH = process.env.DB_PATH || "data/labels.db";
-const dataDir = path.dirname(DB_PATH);
+const DB_PATH = path.resolve(process.env.DB_PATH || "labels.db");
 
-if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-}
+console.log(`[DB] Initializing... Path: ${DB_PATH}`);
 
 export const db: Database.Database = new Database(DB_PATH);
 
 // Initialize DB schema
 export function initDB() {
-    db.exec(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS labels (
       uri TEXT NOT NULL,
       val TEXT NOT NULL,
