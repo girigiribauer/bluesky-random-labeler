@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node dist/index.mjs",
     "build": "node esbuild.config.cjs",
-    "test": "npm run test -ws --if-present",
+    "test": "vitest run",
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
