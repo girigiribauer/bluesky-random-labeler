@@ -69,7 +69,7 @@ jobs:
           SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
           # TODO: verify container name for random-labeler2
-          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "docker restart random-labeler2_app"
+          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "docker restart random-labeler2_bsky_girigiribauer_com_app"
 
       - name: 古いリリースを削除 (最新5つを残す)
         env:
