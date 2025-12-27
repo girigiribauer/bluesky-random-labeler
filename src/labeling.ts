@@ -1,5 +1,5 @@
 import { LabelerServer } from "@skyware/labeler";
-import { FORTUNES, getDailyFortune } from "./fortune.js";
+import { FORTUNES, getDailyFortune, getRandom3Labels, OLD_LABELS, NEW_LABELS } from "./fortune.js";
 import { db } from "./db.js";
 
 /**
@@ -12,22 +12,26 @@ export function calculateNegateList(currentFortune: string): string[] {
 }
 
 /**
- * ユーザーに対して日替わりの運勢ラベルを付与し、それ以外の運勢ラベルを全て打ち消します (Negate)。
+ * ユーザーに対してランダムで3つのラベルを付与し、それ以外（旧ラベル含む）を全て打ち消します。
  * @param did 対象ユーザーのDID
  * @param labeler LabelerServerのインスタンス
  */
 export async function processUser(did: string, labeler: LabelerServer) {
-    const fortune = getDailyFortune(did);
-    console.log(`Processing ${did}, fortune: ${fortune}`);
+    const selectedLabels = getRandom3Labels();
+    console.log(`Processing ${did}, selected: ${selectedLabels.join(", ")}`);
 
-    const negate = calculateNegateList(fortune);
+    // Negate all old labels AND any new labels not currently selected
+    const negateList = [
+        ...OLD_LABELS,
+        ...NEW_LABELS.filter(l => !selectedLabels.includes(l))
+    ];
 
     try {
         await labeler.createLabels(
             { uri: did },
             {
-                create: [fortune],
-                negate: negate,
+                create: selectedLabels,
+                negate: negateList,
             }
         );
     } catch (e) {

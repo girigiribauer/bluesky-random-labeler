@@ -1,6 +1,17 @@
 import { createHash } from "node:crypto";
 import { getJstDate } from "./utils.js";
 
+// Old labels for cleanup
+export const OLD_LABELS = [
+    "daikichi", "kichi", "chukichi", "shokichi", "suekichi", "kyo", "daikyo"
+];
+
+// New test labels
+export const NEW_LABELS = [
+    "A", "B", "C", "D", "E",
+    "1", "2", "3", "4", "5"
+];
+
 export const FORTUNES = [
     { val: "daikichi", threshold: 6 },   // 6%
     { val: "kichi", threshold: 28 },     // 22%
@@ -24,4 +35,10 @@ export function getDailyFortune(did: string, date?: Date): string {
         }
     }
     return "kichi";
+}
+
+export function getRandom3Labels(): string[] {
+    // Shuffle copy of NEW_LABELS
+    const shuffled = [...NEW_LABELS].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, 3);
 }
