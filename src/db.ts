@@ -18,6 +18,7 @@ export function initDB() {
       val TEXT NOT NULL,
       cts TEXT NOT NULL,
       neg INTEGER DEFAULT 0,
+      src TEXT,
       PRIMARY KEY (uri, val)
     )
   `);
