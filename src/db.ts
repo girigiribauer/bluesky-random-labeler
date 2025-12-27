@@ -1,5 +1,8 @@
 import Database from "better-sqlite3";
 import path from "node:path";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const DB_PATH = path.resolve(process.env.DB_PATH || "labels.db");
 
