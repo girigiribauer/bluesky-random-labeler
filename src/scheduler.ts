@@ -76,18 +76,21 @@ async function runOptimizedBatch(bot: Bot, labeler: LabelerServer) {
     let updateCount = 0;
     let removeCount = 0;
 
+    // A. フォロー中のユーザー: 全員処理 (DBにない場合も復活させる)
+    for (const did of currentFollowers) {
+        await processUser(did, labeler);
+        updateCount++;
+        // 負荷分散
+        await new Promise(r => setTimeout(r, 50));
+    }
+
+    // B. DBにはいるがフォローしていないユーザー: クリーンアップ
     for (const did of localDids) {
-        if (currentFollowers.has(did)) {
-            // まだフォローしている -> 運勢を更新
-            await processUser(did, labeler);
-            updateCount++;
-        } else {
-            // フォロワーリストにいない -> オプトアウト (クリーンアップ)
+        if (!currentFollowers.has(did)) {
             await negateUser(did, labeler);
             removeCount++;
+            await new Promise(r => setTimeout(r, 50));
         }
-        // Labeler APIへの負荷を考慮した短い遅延
-        await new Promise(r => setTimeout(r, 50));
     }
 
     console.log(`[Batch] Summary: Updated ${updateCount}, Removed ${removeCount}.`);
