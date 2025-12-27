@@ -11,6 +11,10 @@ import { getJstDate } from "./utils.js";
 export function startMidnightScheduler(bot: Bot, labeler: LabelerServer) {
     let lastDay = getJstDate();
 
+    // 起動時に即座にバッチを実行 (for testing / recovery)
+    console.log("Starting initial batch run...");
+    runOptimizedBatch(bot, labeler).catch(console.error);
+
     setInterval(async () => {
         const todayJst = getJstDate();
 
