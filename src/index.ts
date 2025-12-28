@@ -1,72 +1,104 @@
-import { serve } from "@hono/node-server";
-import { Hono } from "hono";
+import dotenv from "dotenv";
 import { LabelerServer } from "@skyware/labeler";
 import { Bot } from "@skyware/bot";
-import dotenv from "dotenv";
-import { processUser } from "./labeling.js";
-import { startMidnightScheduler } from "./scheduler.js";
-import { initDB } from "./db.js";
+import Database from "better-sqlite3";
+import fs from "node:fs";
+import path from "node:path";
+import { getDailyFortune } from "./fortune.js";
 
 dotenv.config();
 
-// Initialize DB Schema
-initDB();
+const PORT = parseInt(process.env.PORT || "3000");
+const DB_PATH = process.env.DB_PATH || "data/labels.db";
+const dataDir = path.dirname(DB_PATH);
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
 
-const app = new Hono();
-const port = Number(process.env.PORT) || 3000;
-
-// Initialize Labeler (Stateful with SQLite)
 const labeler = new LabelerServer({
   did: process.env.LABELER_DID ?? "",
   signingKey: process.env.SIGNING_KEY ?? "",
-  dbPath: process.env.DB_PATH ?? "data/labels.db",
+  dbPath: DB_PATH,
 });
 
-const bot = new Bot();
+const db = new Database(DB_PATH);
 
-app.get("/", (c) => {
-  return c.text("Omikuji Labeler is running!");
-});
+/**
+ * ラベルを付与する
+ * @param did アクションを起こしたユーザーの DID
+ */
+async function processUser(did: string) {
+  const fortune = getDailyFortune(did);
+  console.log(`Processing ${did}: ${fortune}`);
 
-serve({
-  fetch: app.fetch,
-  port,
-  hostname: "0.0.0.0"
-}, (info) => {
-  console.log(`Listening on ${info.port}`);
+  try {
+    await labeler.createLabel({
+      uri: did,
+      val: fortune,
+    });
+  } catch (e) {
+    console.error(`Failed to label ${did}:`, e);
+  }
+}
 
-  labeler.start({ port: 0 }, (error, address) => {
-    if (error) {
-      console.error("Labeler failed to start:", error);
-    } else {
-      console.log("Labeler internal server started.");
-    }
-  });
-});
+const bot: Bot = new Bot();
 
-async function main() {
+async function startNotificationPolling() {
   try {
     await bot.login({
       identifier: process.env.LABELER_DID ?? "",
       password: process.env.LABELER_PASSWORD ?? "",
     });
-    console.log("Bot logged in!");
-
-    startMidnightScheduler(bot, labeler);
+    console.log("Bot logged in for notification polling.");
 
     bot.on("follow", async (e: any) => {
       console.log(`New follower: ${e.user.did}`);
-      await processUser(e.user.did, labeler);
+      await processUser(e.user.did);
     });
 
     bot.on("like", async (e: any) => {
-      console.log(`Like detected from: ${e.user.did}`);
-      await processUser(e.user.did, labeler);
+      console.log(`New like from: ${e.user.did}`);
+      await processUser(e.user.did);
     });
 
   } catch (e) {
-    console.error("Bot login failed:", e);
+    console.error("Failed to login/start polling:", e);
   }
 }
 
-main();
+function startMidnightScheduler() {
+  let lastDay = new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" }).split("T")[0];
+
+  setInterval(async () => {
+    const jstDate = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+
+    const year = jstDate.getFullYear();
+    const month = String(jstDate.getMonth() + 1).padStart(2, '0');
+    const day = String(jstDate.getDate()).padStart(2, '0');
+    const todayJst = `${year}-${month}-${day}`;
+
+    if (todayJst !== lastDay) {
+      console.log(`Midnight detected! ${lastDay} -> ${todayJst}. Running batch...`);
+      lastDay = todayJst;
+
+      const rows = db.prepare("SELECT DISTINCT uri FROM labels WHERE uri LIKE 'did:%'").all() as { uri: string }[];
+      console.log(`found ${rows.length} users to update.`);
+
+      for (const row of rows) {
+        await processUser(row.uri);
+        await new Promise(r => setTimeout(r, 50));
+      }
+      console.log("Batch complete.");
+    }
+  }, 60000);
+}
+
+labeler.start({ port: PORT, host: "0.0.0.0" }, (error) => {
+  if (error) {
+    console.error("Failed to start server", error);
+  } else {
+    console.log(`Labeler running on port ${PORT}`);
+    startNotificationPolling();
+    startMidnightScheduler();
+  }
+});

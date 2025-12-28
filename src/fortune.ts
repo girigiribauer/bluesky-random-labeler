@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { getJstDate } from "./utils.js";
 
 export const FORTUNES = [
     { val: "daikichi", threshold: 6 },   // 6%
@@ -11,9 +10,9 @@ export const FORTUNES = [
     { val: "daikyo", threshold: 100 },   // 3%
 ];
 
-export function getDailyFortune(did: string, date?: Date): string {
-    const dateStr = getJstDate(date);
-
+export function getDailyFortune(did: string): string {
+    const jstNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+    const dateStr = jstNow.toISOString().split("T")[0];
     const seed = did + dateStr;
     const hash = createHash("sha256").update(seed).digest();
     const val = hash.readUInt32BE(0) % 100;
