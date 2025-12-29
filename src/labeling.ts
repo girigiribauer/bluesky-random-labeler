@@ -1,6 +1,6 @@
 import { LabelerServer } from "@skyware/labeler";
 import { FORTUNES, getDailyFortune } from "./fortune.js";
-import { db } from "./db.js";
+// db import removed to keep this file pure/testable
 
 /**
  * 指定された運勢以外の全ての運勢リスト（Negate対象）を返します。
@@ -39,8 +39,9 @@ export async function processUser(did: string, labeler: LabelerServer) {
  * ユーザーから全ての運勢ラベルを剥奪し (Opt-out)、ローカルDBからも削除します。
  * @param did 対象ユーザーのDID
  * @param labeler LabelerServerのインスタンス
+ * @param db Databaseインスタンス (Dependency Injection)
  */
-export async function negateUser(did: string, labeler: LabelerServer) {
+export async function negateUser(did: string, labeler: LabelerServer, db: any) {
     console.log(`Opt-out cleanup: Removing labels for ${did}`);
     const allFortunes = FORTUNES.map((f) => f.val);
     try {

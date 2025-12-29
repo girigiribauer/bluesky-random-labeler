@@ -1,19 +1,20 @@
 import { Bot } from "@skyware/bot";
 import { LabelerServer } from "@skyware/labeler";
-import { db } from "./db.js";
+import { db as defaultDb } from "./db.js";
 import { processUser, negateUser } from "./labeling.js";
 import { getJstDate } from "./utils.js";
+import Database from "better-sqlite3";
 
 /**
  * 深夜にバッチを起動し、運勢の更新とフォロー解除者のクリーンアップを行います。
  * 最適化: フォロワー・フォロイーの一括取得を行い、API呼び出し回数を最小限に抑えます。
  */
-export function startMidnightScheduler(bot: Bot, labeler: LabelerServer) {
+export function startMidnightScheduler(bot: Bot, labeler: LabelerServer, db: Database.Database = defaultDb) {
     let lastDay = getJstDate();
 
     // 起動時に即座にバッチを実行 (for testing / recovery)
     console.log("Starting initial batch run...");
-    runOptimizedBatch(bot, labeler).catch(console.error);
+    runOptimizedBatch(bot, labeler, db).catch(console.error);
 
     setInterval(async () => {
         const todayJst = getJstDate();
@@ -24,7 +25,7 @@ export function startMidnightScheduler(bot: Bot, labeler: LabelerServer) {
             lastDay = todayJst;
 
             try {
-                await runOptimizedBatch(bot, labeler);
+                await runOptimizedBatch(bot, labeler, db);
             } catch (e) {
                 console.error("Batch execution failed:", e);
             }
@@ -34,7 +35,7 @@ export function startMidnightScheduler(bot: Bot, labeler: LabelerServer) {
     }, 60000); // 1分ごとにチェック
 }
 
-async function runOptimizedBatch(bot: Bot, labeler: LabelerServer) {
+export async function runOptimizedBatch(bot: Bot, labeler: LabelerServer, db: Database.Database = defaultDb) {
     // 1. ローカルDBから追跡中の全ユーザーを取得
     const rows = db.prepare("SELECT DISTINCT uri FROM labels WHERE uri LIKE 'did:%'").all() as { uri: string }[];
     const localDids = new Set(rows.map(r => r.uri));
@@ -87,7 +88,7 @@ async function runOptimizedBatch(bot: Bot, labeler: LabelerServer) {
     // B. DBにはいるがフォローしていないユーザー: クリーンアップ
     for (const did of localDids) {
         if (!currentFollowers.has(did)) {
-            await negateUser(did, labeler);
+            await negateUser(did, labeler, db);
             removeCount++;
             await new Promise(r => setTimeout(r, 50));
         }
