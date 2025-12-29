@@ -67,7 +67,7 @@ export async function runOptimizedBatch(bot: Bot, labeler: LabelerServer, db: Da
             await new Promise(r => setTimeout(r, 100));
         } catch (e) {
             console.error("[Batch] Failed to fetch followers chunk:", e);
-            break; // 状態不整合を防ぐため、APIエラー時は取得を中断
+            throw e; // API失敗時は処理を中断し、不完全なリストでの削除を防ぐ
         }
     } while (cursor);
 
