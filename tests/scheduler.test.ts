@@ -132,6 +132,22 @@ describe('runOptimizedBatch', () => {
         // Verify: Page 2 user NOT deleted (crucial check)
         expect(labeling.negateUser).not.toHaveBeenCalled();
     });
+
+    it('APIエラー時に処理を中断し、誤削除を防ぐ', async () => {
+        // Setup DB: Users exist
+        mockDb.prepare.mockReturnValue({
+            all: () => [{ uri: 'did:user:existing' }],
+        });
+
+        // Setup Bot: API fails
+        mockBot.agent.get.mockRejectedValue(new Error('API Error'));
+
+        // Expect runOptimizedBatch to reject/throw
+        await expect(runOptimizedBatch(mockBot, mockLabeler, mockDb)).rejects.toThrow('API Error');
+
+        // Verify: negateUser MUST NOT be called
+        expect(labeling.negateUser).not.toHaveBeenCalled();
+    });
 });
 
 describe('startMidnightScheduler', () => {

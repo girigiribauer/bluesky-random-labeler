@@ -25,6 +25,8 @@ async function startNotificationPolling() {
     });
     console.log("Bot logged in for notification polling.");
 
+    startMidnightScheduler(bot, labeler);
+
     bot.on("follow", async (e: any) => {
       console.log(`New follower: ${e.user.did}`);
       await processUser(e.user.did, labeler);
@@ -46,6 +48,5 @@ labeler.start({ port: PORT, host: "0.0.0.0" }, (error) => {
   } else {
     console.log(`Labeler running on port ${PORT}`);
     startNotificationPolling();
-    startMidnightScheduler(bot, labeler);
   }
 });
