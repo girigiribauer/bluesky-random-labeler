@@ -16,9 +16,11 @@ export function calculateNegateList(currentFortune: string): string[] {
  * @param did 対象ユーザーのDID
  * @param labeler LabelerServerのインスタンス
  */
-export async function processUser(did: string, labeler: LabelerServer) {
+export async function processUser(did: string, labeler: LabelerServer, handle?: string) {
     const fortune = getDailyFortune(did);
-    console.log(`Processing ${did}, fortune: ${fortune}`);
+    const now = new Date().toLocaleString("ja-JP");
+    const identifier = handle ? `${handle} (${did})` : did;
+    console.log(`[${now}] Processing ${identifier}, fortune: ${fortune}`);
 
     const negate = calculateNegateList(fortune);
 
@@ -42,7 +44,8 @@ export async function processUser(did: string, labeler: LabelerServer) {
  * @param db Databaseインスタンス (Dependency Injection)
  */
 export async function negateUser(did: string, labeler: LabelerServer, db: any) {
-    console.log(`Opt-out cleanup: Removing labels for ${did}`);
+    const now = new Date().toLocaleString("ja-JP");
+    console.log(`[${now}] Cleanup: Removing labels from ${did}`);
     const allFortunes = FORTUNES.map((f) => f.val);
     try {
         await labeler.createLabels({ uri: did }, { negate: allFortunes });

@@ -36,14 +36,17 @@ export function startMidnightScheduler(bot: Bot, labeler: LabelerServer, db: Dat
 }
 
 export async function runOptimizedBatch(bot: Bot, labeler: LabelerServer, db: Database.Database = defaultDb) {
+    const log = (msg: string) => console.log(`[${new Date().toLocaleString("ja-JP")}] ${msg}`);
+    const errorLog = (msg: string, e: any) => console.error(`[${new Date().toLocaleString("ja-JP")}] ${msg}`, e);
+
     // 1. ローカルDBから追跡中の全ユーザーを取得
     const rows = db.prepare("SELECT DISTINCT uri FROM labels WHERE uri LIKE 'did:%'").all() as { uri: string }[];
     const localDids = new Set(rows.map(r => r.uri));
-    console.log(`[Batch] Found ${localDids.size} users in local DB.`);
+    log(`[Batch] Found ${localDids.size} users in local DB.`);
 
     // 2. 現在の全フォロワーをAPIから取得
-    console.log("[Batch] Fetching current followers from API...");
-    const currentFollowers = new Set<string>();
+    log("[Batch] Fetching current followers from API...");
+    const currentFollowers = new Map<string, string>(); // did -> handle
     let cursor: string | undefined;
 
     do {
@@ -59,27 +62,27 @@ export async function runOptimizedBatch(bot: Bot, labeler: LabelerServer, db: Da
 
             if (response.data.followers) {
                 for (const f of response.data.followers) {
-                    currentFollowers.add(f.did);
+                    currentFollowers.set(f.did, f.handle);
                 }
             }
             cursor = response.data.cursor;
             // レート制限保護
             await new Promise(r => setTimeout(r, 100));
         } catch (e) {
-            console.error("[Batch] Failed to fetch followers chunk:", e);
+            errorLog("[Batch] Failed to fetch followers chunk:", e);
             throw e; // API失敗時は処理を中断し、不完全なリストでの削除を防ぐ
         }
     } while (cursor);
 
-    console.log(`[Batch] Fetched ${currentFollowers.size} active followers.`);
+    log(`[Batch] Fetched ${currentFollowers.size} active followers.`);
 
     // 3. 比較と処理
     let updateCount = 0;
     let removeCount = 0;
 
     // A. フォロー中のユーザー: 全員処理 (DBにない場合も復活させる)
-    for (const did of currentFollowers) {
-        await processUser(did, labeler);
+    for (const [did, handle] of currentFollowers) {
+        await processUser(did, labeler, handle);
         updateCount++;
         // 負荷分散
         await new Promise(r => setTimeout(r, 50));
@@ -94,5 +97,5 @@ export async function runOptimizedBatch(bot: Bot, labeler: LabelerServer, db: Da
         }
     }
 
-    console.log(`[Batch] Summary: Updated ${updateCount}, Removed ${removeCount}.`);
+    log(`[Batch] Summary: Updated ${updateCount}, Removed ${removeCount}.`);
 }

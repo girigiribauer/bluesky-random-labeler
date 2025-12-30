@@ -29,12 +29,12 @@ async function startNotificationPolling() {
 
     bot.on("follow", async (e: any) => {
       console.log(`New follower: ${e.user.did}`);
-      await processUser(e.user.did, labeler);
+      await processUser(e.user.did, labeler, e.user.handle);
     });
 
     bot.on("like", async (e: any) => {
       console.log(`New like from: ${e.user.did}`);
-      await processUser(e.user.did, labeler);
+      await processUser(e.user.did, labeler, e.user.handle);
     });
 
   } catch (e) {
