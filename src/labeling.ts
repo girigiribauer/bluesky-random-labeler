@@ -1,5 +1,6 @@
 import { LabelerServer } from "@skyware/labeler";
 import { FORTUNES, getDailyFortune } from "./fortune.js";
+import { getJstTime } from "./utils.js";
 // db import removed to keep this file pure/testable
 
 /**
@@ -18,7 +19,7 @@ export function calculateNegateList(currentFortune: string): string[] {
  */
 export async function processUser(did: string, labeler: LabelerServer, handle?: string) {
     const fortune = getDailyFortune(did);
-    const now = new Date().toLocaleString("ja-JP");
+    const now = getJstTime();
     const identifier = handle ? `${handle} (${did})` : did;
     console.log(`[${now}] Processing ${identifier}, fortune: ${fortune}`);
 
@@ -44,7 +45,7 @@ export async function processUser(did: string, labeler: LabelerServer, handle?: 
  * @param db Databaseインスタンス (Dependency Injection)
  */
 export async function negateUser(did: string, labeler: LabelerServer, db: any) {
-    const now = new Date().toLocaleString("ja-JP");
+    const now = getJstTime();
     console.log(`[${now}] Cleanup: Removing labels from ${did}`);
     const allFortunes = FORTUNES.map((f) => f.val);
     try {

@@ -2,7 +2,7 @@ import { Bot } from "@skyware/bot";
 import { LabelerServer } from "@skyware/labeler";
 import { db as defaultDb } from "./db.js";
 import { processUser, negateUser } from "./labeling.js";
-import { getJstDate } from "./utils.js";
+import { getJstDate, getJstTime } from "./utils.js";
 import Database from "better-sqlite3";
 
 /**
@@ -36,8 +36,8 @@ export function startMidnightScheduler(bot: Bot, labeler: LabelerServer, db: Dat
 }
 
 export async function runOptimizedBatch(bot: Bot, labeler: LabelerServer, db: Database.Database = defaultDb) {
-    const log = (msg: string) => console.log(`[${new Date().toLocaleString("ja-JP")}] ${msg}`);
-    const errorLog = (msg: string, e: any) => console.error(`[${new Date().toLocaleString("ja-JP")}] ${msg}`, e);
+    const log = (msg: string) => console.log(`[${getJstTime()}] ${msg}`);
+    const errorLog = (msg: string, e: any) => console.error(`[${getJstTime()}] ${msg}`, e);
 
     // 1. ローカルDBから追跡中の全ユーザーを取得
     const rows = db.prepare("SELECT DISTINCT uri FROM labels WHERE uri LIKE 'did:%'").all() as { uri: string }[];

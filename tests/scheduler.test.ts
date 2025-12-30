@@ -13,6 +13,7 @@ vi.mock('../src/labeling', () => ({
 
 vi.mock('../src/utils', () => ({
     getJstDate: vi.fn(),
+    getJstTime: vi.fn().mockReturnValue('2024-01-01 00:00:00'),
 }));
 
 describe('runOptimizedBatch', () => {
@@ -46,7 +47,7 @@ describe('runOptimizedBatch', () => {
         // Setup Bot: User is still following
         mockBot.agent.get.mockResolvedValue({
             data: {
-                followers: [{ did: 'did:user:keep' }],
+                followers: [{ did: 'did:user:keep', handle: 'handle.keep' }],
                 cursor: undefined
             }
         });
@@ -54,7 +55,7 @@ describe('runOptimizedBatch', () => {
         await runOptimizedBatch(mockBot, mockLabeler, mockDb);
 
         // Verify: processUser should be called for active follower
-        expect(labeling.processUser).toHaveBeenCalledWith('did:user:keep', mockLabeler);
+        expect(labeling.processUser).toHaveBeenCalledWith('did:user:keep', mockLabeler, 'handle.keep');
         // Verify: negateUser should NOT be called (user is safe)
         expect(labeling.negateUser).not.toHaveBeenCalled();
     });
@@ -90,7 +91,7 @@ describe('runOptimizedBatch', () => {
         // Setup Bot: New follower found
         mockBot.agent.get.mockResolvedValue({
             data: {
-                followers: [{ did: 'did:user:new' }],
+                followers: [{ did: 'did:user:new', handle: 'handle.new' }],
                 cursor: undefined
             }
         });
@@ -98,7 +99,7 @@ describe('runOptimizedBatch', () => {
         await runOptimizedBatch(mockBot, mockLabeler, mockDb);
 
         // Verify: processUser called for new follower
-        expect(labeling.processUser).toHaveBeenCalledWith('did:user:new', mockLabeler);
+        expect(labeling.processUser).toHaveBeenCalledWith('did:user:new', mockLabeler, 'handle.new');
         expect(labeling.negateUser).not.toHaveBeenCalled();
     });
 
@@ -112,13 +113,13 @@ describe('runOptimizedBatch', () => {
         mockBot.agent.get
             .mockResolvedValueOnce({
                 data: {
-                    followers: [{ did: 'did:user:page1' }],
+                    followers: [{ did: 'did:user:page1', handle: 'handle.page1' }],
                     cursor: 'next-page-cursor'
                 }
             })
             .mockResolvedValueOnce({
                 data: {
-                    followers: [{ did: 'did:user:page2' }],
+                    followers: [{ did: 'did:user:page2', handle: 'handle.page2' }],
                     cursor: undefined // End of list
                 }
             });
@@ -126,8 +127,8 @@ describe('runOptimizedBatch', () => {
         await runOptimizedBatch(mockBot, mockLabeler, mockDb);
 
         // Verify: Both pages processed
-        expect(labeling.processUser).toHaveBeenCalledWith('did:user:page1', mockLabeler);
-        expect(labeling.processUser).toHaveBeenCalledWith('did:user:page2', mockLabeler);
+        expect(labeling.processUser).toHaveBeenCalledWith('did:user:page1', mockLabeler, 'handle.page1');
+        expect(labeling.processUser).toHaveBeenCalledWith('did:user:page2', mockLabeler, 'handle.page2');
 
         // Verify: Page 2 user NOT deleted (crucial check)
         expect(labeling.negateUser).not.toHaveBeenCalled();
