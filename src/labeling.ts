@@ -13,6 +13,28 @@ export function calculateNegateList(currentFortune: string): string[] {
 }
 
 /**
+ * ユーザーに対して特定の運勢ラベルを付与し、それ以外の運勢ラベルを全て打ち消します (Negate)。
+ * ギミック等の強制上書き用です。
+ * @param did 対象ユーザーのDID
+ * @param fortune 付与する運勢
+ * @param labeler LabelerServerのインスタンス
+ */
+export async function overwriteFortune(did: string, fortune: string, labeler: LabelerServer) {
+    const negate = calculateNegateList(fortune);
+    try {
+        await labeler.createLabels(
+            { uri: did },
+            {
+                create: [fortune],
+                negate: negate,
+            }
+        );
+    } catch (e) {
+        console.error(`Error applying fortune ${fortune} to ${did}:`, e);
+    }
+}
+
+/**
  * ユーザーに対して日替わりの運勢ラベルを付与し、それ以外の運勢ラベルを全て打ち消します (Negate)。
  * @param did 対象ユーザーのDID
  * @param labeler LabelerServerのインスタンス
