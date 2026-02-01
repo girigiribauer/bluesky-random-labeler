@@ -1,0 +1,49 @@
+[package]
+name = "bluesky-random-labeler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Async Runtime
+tokio = { version = "1.36", features = ["full"] }
+
+# Web Framework
+axum = { version = "0.7", features = ["ws"] }
+
+# AT Protocol
+atrium-api = "0.25"
+atrium-common = "0.1"
+atrium-xrpc-client = { version = "0.5", features = ["reqwest"] }
+atrium-crypto = "0.1"
+
+# Signing
+serde_ipld_dagcbor = "0.6"
+
+# Database
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-native-tls", "macros", "chrono"] }
+
+# Utils
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+dotenvy = "0.15"
+anyhow = "1.0"
+thiserror = "1.0"
+sha2 = "0.10"
+hex = "0.4"
+chrono = "0.4"
+
+# Scheduling
+tokio-cron-scheduler = "0.11"
+tracing-subscriber = "0.3"
+serde_urlencoded = "0.7.1"
+serde_qs = "0.15.0"
+rand = { version = "0.8", features = ["std", "std_rng"] }
+tower-http = { version = "0.6.8", features = ["fs", "trace"] }
+tower = { version = "0.5.3", features = ["util"] }
+ipld-core = "0.4.2"
+cid = "0.11.1"
+reqwest = { version = "0.13.1", features = ["json", "blocking"] }
+tracing = "0.1.44"
+
+[dev-dependencies]
+serde_json = "1.0"

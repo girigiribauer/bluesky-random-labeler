@@ -22,3 +22,8 @@ dist/
 labels.db
 labels.db-shm
 labels.db-wal
+
+
+# Added by cargo
+
+/target

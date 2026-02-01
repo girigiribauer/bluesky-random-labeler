@@ -4,3 +4,9 @@
 subscribe すれば毎日自動でラベル付けされます
 いやなら unsubscribe すれば外れます
 何かあれば  [@girigiribauer.com](https://bsky.app/profile/girigiribauer.com) まで
+
+## ラベル定義
+
+```
+cargo run --bin add-labels
+```

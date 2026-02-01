@@ -1,83 +1,57 @@
-name: Release Node App
+name: Build and Deploy
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   release:
     runs-on: ubuntu-latest
-
-    env:
-      PATH_PREFIX: /var/www/
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Node.js のセットアップ
-        uses: actions/setup-node@v3
+      - name: GitHub Container Registry へログイン
+        uses: docker/login-action@v3
         with:
-          node-version: "22"
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 依存関係のインストールとビルド
-        run: |
-          npm ci
-          npm run build
-          cp -r node_modules dist/.
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix={{branch}}-
 
-      - name: env ファイルの作成
-        run: |
-          echo "LABELER_DID=${{ secrets.LABELER_DID }}" >> dist/.env
-          echo "LABELER_PASSWORD=${{ secrets.LABELER_PASSWORD }}" >> dist/.env
-          echo "SIGNING_KEY=${{ secrets.SIGNING_KEY }}" >> dist/.env
-          echo "DB_PATH=/data/labels.db" >> dist/.env
-          echo "PORT=3000" >> dist/.env
+      - name: Rust アプリの Docker イメージをビルド・プッシュ
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
-      - name: リリースディレクトリ名を時刻から作成
-        id: timestamp
-        run: echo "RELEASE_TIMESTAMP=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_ENV
-
-      - name: Deploy
+      - name: Deploy to VPS
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           DOMAIN: ${{ secrets.DOMAIN }}
-          RELEASE_TIMESTAMP: ${{ env.RELEASE_TIMESTAMP }}
           SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
         run: |
-          # SSH キーの設定
           mkdir -p ~/.ssh
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-
-          # rsync でカスタムポートを指定してアップロード
-          rsync -avz --delete --exclude '.git*' -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=no" ./dist/ ubuntu@${{ secrets.VPS_IP }}:${{ env.PATH_PREFIX }}${{ env.DOMAIN }}/releases/${{ env.RELEASE_TIMESTAMP }}
-
-      - name: シンボリックリンクの貼り替え
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DOMAIN: ${{ secrets.DOMAIN }}
-          RELEASE_TIMESTAMP: ${{ env.RELEASE_TIMESTAMP }}
-          SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
-        run: |
-          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "ln -snf ${{ env.PATH_PREFIX }}${{ env.DOMAIN }}/releases/${{ env.RELEASE_TIMESTAMP }} ${{ env.PATH_PREFIX }}${{ env.DOMAIN }}/current"
-
-      - name: Dockerコンテナの再起動
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
-        run: |
-          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "docker restart random-labeler_bsky_girigiribauer_com_app"
-
-      - name: 古いリリースを削除 (最新5つを残す)
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DOMAIN: ${{ secrets.DOMAIN }}
-          SSH_PORT: ${{ secrets.VPS_SSH_PORT }}
-        run: |
-          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "cd ${{ env.PATH_PREFIX }}${{ env.DOMAIN }}/releases && ls -t | tail -n +6 | xargs -r rm -rf"
-
-      - name: 秘密鍵の削除
-        if: always()
-        run: rm -f ~/.ssh/id_rsa
+          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "cd /opt/services/${{ secrets.DOMAIN }} && docker compose pull app && docker compose up -d app && docker compose restart app"
