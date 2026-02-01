@@ -54,4 +54,4 @@ jobs:
           mkdir -p ~/.ssh
           echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "cd /opt/services/${{ secrets.DOMAIN }} && docker compose pull app && docker compose up -d app && docker compose restart app"
+          ssh -i ~/.ssh/id_rsa -p $SSH_PORT -o StrictHostKeyChecking=no ubuntu@${{ secrets.VPS_IP }} "cd /opt/services/${{ secrets.DOMAIN }} && docker compose pull app && docker compose up -d app"
