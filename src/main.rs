@@ -18,7 +18,7 @@ async fn main() -> anyhow::Result<()> {
     let pool = init_db(&conf.db_path).await?;
 
     let keypair = Arc::new(create_keypair(&conf.signing_key_hex)?);
-    let (tx, _rx) = tokio::sync::broadcast::channel(1000);
+    let (tx, _rx) = tokio::sync::broadcast::channel(10000);
 
     let pool_clone = pool.clone();
     let keypair_clone = keypair.clone();
@@ -26,6 +26,15 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(async move {
         if let Err(e) = poller::start_polling(pool_clone, keypair_clone, tx_for_poller).await {
             tracing::error!(error = ?e, "Poller failed");
+        }
+    });
+
+    // Run batch on startup
+    let startup_pool = pool.clone();
+    let startup_tx = tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = scheduler::run_optimized_batch(startup_pool, startup_tx).await {
+            tracing::error!(error = ?e, "Startup batch failed");
         }
     });
 
