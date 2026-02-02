@@ -9,11 +9,12 @@ RUN apt-get update && \
 COPY Cargo.toml Cargo.lock ./
 
 RUN mkdir src && \
-    echo "fn main() {println!(\"dummy\");}" > src/main.rs
+    echo "fn main() {println!(\"dummy\");}" > src/main.rs && \
+    touch src/lib.rs
 
 RUN cargo build --release
 
-RUN rm -f target/release/deps/bluesky_random_labeler*
+RUN rm -f target/release/deps/bluesky_random_labeler* target/release/deps/libomikuji* target/release/deps/omikuji*
 RUN rm src/main.rs
 
 COPY . .

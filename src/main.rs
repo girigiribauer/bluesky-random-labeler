@@ -1,9 +1,9 @@
-use bluesky_random_labeler::config::config;
-use bluesky_random_labeler::db::init_db;
-use bluesky_random_labeler::api::router;
-use bluesky_random_labeler::state::AppState;
-use bluesky_random_labeler::crypto::create_keypair;
-use bluesky_random_labeler::{poller, scheduler};
+use omikuji::config::config;
+use omikuji::db::init_db;
+use omikuji::api::router;
+use omikuji::state::AppState;
+use omikuji::crypto::create_keypair;
+use omikuji::{poller, scheduler};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_cron_scheduler::{Job, JobScheduler};
@@ -33,10 +33,20 @@ async fn main() -> anyhow::Result<()> {
     let startup_pool = pool.clone();
     let startup_tx = tx.clone();
     tokio::spawn(async move {
-        if let Err(e) = scheduler::run_optimized_batch(startup_pool, startup_tx).await {
-            tracing::error!(error = ?e, "Startup batch failed");
+        if std::env::var("RUN_MIGRATION").is_ok() {
+            tracing::info!("RUN_MIGRATION env var detected. Starting migration batch...");
+            if let Err(e) = scheduler::run_migration(startup_pool, startup_tx).await {
+                tracing::error!(error = ?e, "Migration batch failed");
+            }
+        } else {
+            // Normal startup batch
+            if let Err(e) = scheduler::run_optimized_batch(startup_pool, startup_tx).await {
+                tracing::error!(error = ?e, "Startup batch failed");
+            }
         }
     });
+
+
 
     let sched_pool = pool.clone();
     let sched_tx = tx.clone();

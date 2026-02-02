@@ -3,6 +3,10 @@ name = "bluesky-random-labeler"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "omikuji"
+path = "src/lib.rs"
+
 [dependencies]
 # Async Runtime
 tokio = { version = "1.36", features = ["full"] }

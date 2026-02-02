@@ -19,12 +19,12 @@ pub async fn subscribe_labels(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
 ) -> Response {
-    tracing::info!("WS: subscribeLabels request received");
+    tracing::debug!("WS: subscribeLabels request received");
     ws.on_upgrade(move |socket| handle_socket(socket, state.tx))
 }
 
 async fn handle_socket(mut socket: WebSocket, tx: broadcast::Sender<(i64, Vec<Label>)>) {
-    tracing::info!("WS: Connection established");
+    tracing::debug!("WS: Connection established");
     let mut rx = tx.subscribe();
 
     loop {

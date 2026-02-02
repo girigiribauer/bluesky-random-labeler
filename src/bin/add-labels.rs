@@ -9,7 +9,7 @@ use atrium_api::com::atproto::label::defs::{
 use atrium_api::types::string::{Datetime, Language, Nsid, RecordKey};
 use atrium_api::types::Unknown;
 use atrium_xrpc_client::reqwest::ReqwestClient;
-use bluesky_random_labeler::config::config;
+use omikuji::config::config;
 use std::str::FromStr;
 
 #[tokio::main]

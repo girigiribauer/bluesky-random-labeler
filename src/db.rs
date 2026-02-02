@@ -27,6 +27,8 @@ pub async fn init_db(db_path: &str) -> Result<DbPool> {
           cts TEXT NOT NULL,
           neg INTEGER DEFAULT 0,
           src TEXT,
+          is_fixed INTEGER DEFAULT 0,
+          is_deleted INTEGER DEFAULT 0,
           PRIMARY KEY (uri, val)
         );
         "#
@@ -36,6 +38,9 @@ pub async fn init_db(db_path: &str) -> Result<DbPool> {
 
     // カラム追加は2回目以降エラーになるが、エラーを無視して続ける（重複していたら追加されない）
     let _ = sqlx::query("ALTER TABLE labels ADD COLUMN is_fixed INTEGER DEFAULT 0")
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE labels ADD COLUMN is_deleted INTEGER DEFAULT 0")
         .execute(&pool)
         .await;
 
@@ -65,7 +70,10 @@ pub async fn upsert_label(pool: &DbPool, uri: &str, val: &str, cts: &str, neg: b
 }
 
 pub async fn delete_label(pool: &DbPool, uri: &str) -> Result<()> {
-    sqlx::query("DELETE FROM labels WHERE uri = ?")
+    // Soft delete: Update is_deleted flag and update timestamp
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    sqlx::query("UPDATE labels SET is_deleted = 1, cts = ? WHERE uri = ?")
+        .bind(now)
         .bind(uri)
         .execute(pool)
         .await?;
@@ -81,6 +89,7 @@ pub struct LabelRow {
     pub neg: i32,
     pub src: String,
     pub is_fixed: Option<i32>,
+    pub is_deleted: Option<i32>,
 }
 
 pub async fn get_labels(pool: &DbPool, uri: &str, cursor: Option<i64>, limit: Option<i64>) -> Result<Vec<LabelRow>> {
@@ -88,7 +97,7 @@ pub async fn get_labels(pool: &DbPool, uri: &str, cursor: Option<i64>, limit: Op
     let cursor = cursor.unwrap_or(0);
 
     let rows = sqlx::query_as::<_, LabelRow>(
-        "SELECT rowid as id, uri, val, cts, neg, src, is_fixed FROM labels WHERE uri = ? AND rowid > ? ORDER BY rowid DESC LIMIT ?"
+        "SELECT rowid as id, uri, val, cts, neg, src, is_fixed, is_deleted FROM labels WHERE uri = ? AND rowid > ? AND is_deleted = 0 ORDER BY rowid DESC LIMIT ?"
     )
         .bind(uri)
         .bind(cursor)

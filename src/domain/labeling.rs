@@ -80,11 +80,54 @@ pub async fn overwrite_fortune(
 pub async fn revoke_fortune(
     did: &str,
     pool: &DbPool,
-    _keypair: &Secp256k1Keypair,
-    _labeler_did: &str,
-    _tx: &broadcast::Sender<(i64, Vec<Label>)>
+    keypair: &Secp256k1Keypair,
+    labeler_did: &str,
+    tx: &broadcast::Sender<(i64, Vec<Label>)>
 ) -> Result<()> {
+    // 1. Fetch current active labels
+    let active_labels = db_get_labels(pool, did, None, None).await?;
+    let mut negation_labels = Vec::new();
+
+    let now_str = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let cts = Datetime::from_str(&now_str).expect("Invalid timestamp");
+
+    for l in active_labels {
+        // Only negate positive labels to avoid redundancy
+        if l.neg != 0 { continue; }
+
+        let mut label_data = LabelData {
+            cid: None,
+            cts: cts.clone(),
+            exp: None,
+            neg: Some(true),
+            sig: None,
+            src: Did::new(labeler_did.to_string()).expect("Invalid DID"),
+            uri: l.uri.clone(),
+            val: l.val.clone(),
+            ver: Some(1),
+        };
+
+        sign_label(&mut label_data, keypair)?;
+
+        negation_labels.push(Label {
+            data: label_data,
+            extra_data: ipld_core::ipld::Ipld::Null,
+        });
+    }
+
+    // 2. Broadcast negation labels
+    if !negation_labels.is_empty() {
+        // Use 0 as sequence number for revocation events as we don't produce new DB rows
+        match tx.send((0, negation_labels)) {
+            Ok(count) => tracing::info!(did, count, "Broadcasted negation labels"),
+            Err(_) => tracing::debug!(did, "No listeners active for negation broadcast"),
+        }
+    }
+
+    // 3. Soft Delete from DB
     db_delete(pool, did).await?;
+    tracing::info!(did, "Revoked fortune (Soft Delete complete)");
+
     Ok(())
 }
 
