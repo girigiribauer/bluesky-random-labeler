@@ -26,7 +26,7 @@ FROM debian:bookworm-slim
 WORKDIR /app
 
 RUN apt-get update && \
-    apt-get install -y libssl3 ca-certificates curl && \
+    apt-get install -y libssl3 ca-certificates curl sqlite3 && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /build/target/release/bluesky-random-labeler /usr/local/bin/app
