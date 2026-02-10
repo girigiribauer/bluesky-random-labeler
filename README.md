@@ -10,3 +10,10 @@ subscribe すれば毎日自動でラベル付けされます
 ```
 cargo run --bin add-labels
 ```
+
+## ラベル定義削除
+
+```
+cargo run --bin delete-labels
+```
+
