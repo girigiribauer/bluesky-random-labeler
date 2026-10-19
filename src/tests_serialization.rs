@@ -5,6 +5,7 @@ mod tests {
     use std::str::FromStr;
     use serde_ipld_dagcbor::to_vec;
 
+    /// ラベルを署名用のバイト列（DAG-CBOR）にしたとき、本番で通った形と1バイトも違わないこと
     #[test]
     fn test_label_data_cbor_serialization_golden() {
         // 1. Setup Fixed Data (matching the production success case)
@@ -33,6 +34,7 @@ mod tests {
         assert_eq!(hex_out, expected_hex, "Serialization output mismatch! Check ver field or timestamp precision.");
     }
 
+    /// 配信で送るラベルの包み（seq と labels）が、決まりどおりのバイト列になること
     #[test]
     fn test_labels_wrapper_structure() {
         use atrium_api::com::atproto::label::subscribe_labels::LabelsData;

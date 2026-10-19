@@ -181,6 +181,7 @@ mod tests {
     use super::*;
     use crate::db::{init_db, get_labels};
 
+    /// おみくじを引くと、当たった1つのラベルと、ほかの6つを打ち消すラベルが保存されること
     #[tokio::test]
     async fn test_assign_fortune_logic() -> Result<()> {
         let pool = init_db(":memory:").await?;
@@ -204,6 +205,108 @@ mod tests {
         assert_eq!(labels.len(), 7, "Total labels should be 7");
 
         println!("Granted fortune: {}", positives[0].val);
+
+        Ok(())
+    }
+
+    const LABELER: &str = "did:plc:labeler";
+    const TARGET: &str = "did:plc:target";
+
+    async fn setup() -> Result<(DbPool, Secp256k1Keypair, broadcast::Sender<(i64, Vec<Label>)>)> {
+        let pool = init_db(":memory:").await?;
+        let keypair = Secp256k1Keypair::create(&mut rand::rngs::OsRng);
+        let (tx, _rx) = broadcast::channel(100);
+        Ok((pool, keypair, tx))
+    }
+
+    fn other_than_daily(did: &str) -> Fortune {
+        let daily = get_daily_fortune(did);
+        FORTUNES.iter().map(|f| f.val).find(|&v| v != daily).unwrap()
+    }
+
+    /// 書き換えると、指定したおみくじが当たりになり、ほかの6つは打ち消しになること
+    #[tokio::test]
+    async fn test_overwrite_fortune_sets_given_fortune() -> Result<()> {
+        let (pool, keypair, tx) = setup().await?;
+
+        overwrite_fortune(TARGET, "daikyo", &pool, &keypair, LABELER, &tx).await?;
+
+        let labels = get_labels(&pool, TARGET, None, None).await?;
+        let positives: Vec<_> = labels.iter().filter(|l| l.neg == 0).map(|l| l.val.as_str()).collect();
+        assert_eq!(positives, vec!["daikyo"]);
+        assert_eq!(labels.iter().filter(|l| l.neg == 1).count(), 6);
+
+        Ok(())
+    }
+
+    /// 書き換えたおみくじには、固定の印が付くこと
+    #[tokio::test]
+    async fn test_overwrite_fortune_marks_fixed() -> Result<()> {
+        let (pool, keypair, tx) = setup().await?;
+
+        overwrite_fortune(TARGET, "daikyo", &pool, &keypair, LABELER, &tx).await?;
+
+        let labels = get_labels(&pool, TARGET, None, None).await?;
+        let positive = labels.iter().find(|l| l.neg == 0).unwrap();
+        assert_eq!(positive.is_fixed.unwrap_or(0), 1);
+
+        Ok(())
+    }
+
+    /// おみくじにない値で書き換えようとすると、エラーになり何も保存されないこと
+    #[tokio::test]
+    async fn test_overwrite_fortune_rejects_unknown_value() -> Result<()> {
+        let (pool, keypair, tx) = setup().await?;
+
+        let result = overwrite_fortune(TARGET, "chokichi", &pool, &keypair, LABELER, &tx).await;
+
+        assert!(result.is_err());
+        assert!(get_labels(&pool, TARGET, None, None).await?.is_empty());
+
+        Ok(())
+    }
+
+    /// その日に書き換えたおみくじは、引き直しても上書きされないこと
+    #[tokio::test]
+    async fn test_assign_fortune_keeps_todays_overwrite() -> Result<()> {
+        let (pool, keypair, tx) = setup().await?;
+        let fixed = other_than_daily(TARGET);
+
+        overwrite_fortune(TARGET, fixed.as_str(), &pool, &keypair, LABELER, &tx).await?;
+        assign_fortune(TARGET, None, &pool, &keypair, LABELER, &tx).await?;
+
+        let labels = get_labels(&pool, TARGET, None, None).await?;
+        let positives: Vec<_> = labels.iter().filter(|l| l.neg == 0).map(|l| l.val.as_str()).collect();
+        assert_eq!(positives, vec![fixed.as_str()]);
+
+        Ok(())
+    }
+
+    /// 取り消した人のラベルは、読み出されなくなること
+    #[tokio::test]
+    async fn test_revoke_fortune_hides_labels() -> Result<()> {
+        let (pool, keypair, tx) = setup().await?;
+
+        assign_fortune(TARGET, None, &pool, &keypair, LABELER, &tx).await?;
+        revoke_fortune(TARGET, &pool, &keypair, LABELER, &tx).await?;
+
+        assert!(get_labels(&pool, TARGET, None, None).await?.is_empty());
+
+        Ok(())
+    }
+
+    /// 取り消すと、当たりだったラベルを打ち消すラベルが配信されること
+    #[tokio::test]
+    async fn test_revoke_fortune_broadcasts_negation() -> Result<()> {
+        let (pool, keypair, tx) = setup().await?;
+
+        assign_fortune(TARGET, None, &pool, &keypair, LABELER, &tx).await?;
+        let mut rx = tx.subscribe();
+        revoke_fortune(TARGET, &pool, &keypair, LABELER, &tx).await?;
+
+        let (_, labels) = rx.recv().await?;
+        let negated: Vec<_> = labels.iter().map(|l| (l.data.val.as_str(), l.data.neg)).collect();
+        assert_eq!(negated, vec![(get_daily_fortune(TARGET).as_str(), Some(true))]);
 
         Ok(())
     }

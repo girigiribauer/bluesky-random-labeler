@@ -107,42 +107,105 @@ pub async fn get_labels(pool: &DbPool, uri: &str, cursor: Option<i64>, limit: Op
     Ok(rows)
 }
 
+pub async fn query_labels(pool: &DbPool, uris: &[String], cursor: Option<i64>, limit: Option<i64>) -> Result<Vec<LabelRow>> {
+    if uris.is_empty() {
+        return Ok(vec![]);
+    }
+    let placeholders = vec!["?"; uris.len()].join(", ");
+    let sql = format!(
+        "SELECT rowid as id, uri, val, cts, neg, src, is_fixed, is_deleted FROM labels WHERE uri IN ({}) AND rowid > ? AND is_deleted = 0 ORDER BY rowid ASC LIMIT ?",
+        placeholders
+    );
+    let mut query = sqlx::query_as::<_, LabelRow>(&sql);
+    for uri in uris {
+        query = query.bind(uri);
+    }
+    let rows = query
+        .bind(cursor.unwrap_or(0))
+        .bind(limit.unwrap_or(50))
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const URI: &str = "did:plc:test";
+    const CTS: &str = "2026-01-01T00:00:00Z";
+    const SRC: &str = "did:plc:issuer";
+
+    /// 保存したラベルを、同じ URI・値・打ち消しなし・固定なしのまま読み出せること
     #[tokio::test]
-    async fn test_db_operations() -> Result<()> {
+    async fn test_upsert_and_get_label() -> Result<()> {
         let pool = init_db(":memory:").await?;
-        let uri = "did:plc:test";
-        let val = "daikichi";
-        let cts = "2026-01-01T00:00:00Z";
-        let src = "did:plc:issuer";
 
-        upsert_label(&pool, uri, val, cts, false, src, false).await?;
+        upsert_label(&pool, URI, "daikichi", CTS, false, SRC, false).await?;
 
-        let labels = get_labels(&pool, uri, None, None).await?;
+        let labels = get_labels(&pool, URI, None, None).await?;
         assert_eq!(labels.len(), 1);
-        assert_eq!(labels[0].uri, uri);
-        assert_eq!(labels[0].val, val);
+        assert_eq!(labels[0].uri, URI);
+        assert_eq!(labels[0].val, "daikichi");
         assert_eq!(labels[0].neg, 0);
         assert_eq!(labels[0].is_fixed.unwrap_or(0), 0);
 
-        let new_val = "chukichi";
-        upsert_label(&pool, uri, new_val, cts, false, src, true).await?;
+        Ok(())
+    }
 
-        let labels_updated = get_labels(&pool, uri, None, None).await?;
-        assert_eq!(labels_updated.len(), 2);
-        assert_eq!(labels_updated[0].is_fixed.unwrap_or(0), 1);
+    /// 同じ URI に別の値のラベルを足すと、前のラベルと並んで保存されること
+    #[tokio::test]
+    async fn test_upsert_another_value_keeps_both() -> Result<()> {
+        let pool = init_db(":memory:").await?;
 
+        upsert_label(&pool, URI, "daikichi", CTS, false, SRC, false).await?;
+        upsert_label(&pool, URI, "chukichi", CTS, false, SRC, false).await?;
+
+        let labels = get_labels(&pool, URI, None, None).await?;
+        let mut vals: Vec<_> = labels.iter().map(|l| l.val.as_str()).collect();
+        vals.sort();
+        assert_eq!(vals, vec!["chukichi", "daikichi"]);
+
+        Ok(())
+    }
+
+    /// 固定の印を付けて保存したラベルは、固定として読み出せること
+    #[tokio::test]
+    async fn test_upsert_fixed_label() -> Result<()> {
+        let pool = init_db(":memory:").await?;
+
+        upsert_label(&pool, URI, "daikichi", CTS, false, SRC, true).await?;
+
+        let labels = get_labels(&pool, URI, None, None).await?;
+        assert_eq!(labels[0].is_fixed.unwrap_or(0), 1);
+
+        Ok(())
+    }
+
+    /// 打ち消しのラベルは、打ち消しとして保存されること
+    #[tokio::test]
+    async fn test_upsert_negated_label() -> Result<()> {
+        let pool = init_db(":memory:").await?;
         let neg_uri = "did:plc:negated";
-        upsert_label(&pool, neg_uri, "kyo", cts, true, src, false).await?;
-        let items = get_labels(&pool, neg_uri, None, None).await?;
-        assert_eq!(items[0].neg, 1);
 
-        delete_label(&pool, uri).await?;
-        let empty = get_labels(&pool, uri, None, None).await?;
-        assert_eq!(empty.len(), 0);
+        upsert_label(&pool, neg_uri, "kyo", CTS, true, SRC, false).await?;
+
+        let labels = get_labels(&pool, neg_uri, None, None).await?;
+        assert_eq!(labels[0].neg, 1);
+
+        Ok(())
+    }
+
+    /// 削除した URI のラベルは、読み出されなくなること
+    #[tokio::test]
+    async fn test_deleted_label_is_not_returned() -> Result<()> {
+        let pool = init_db(":memory:").await?;
+
+        upsert_label(&pool, URI, "daikichi", CTS, false, SRC, false).await?;
+        delete_label(&pool, URI).await?;
+
+        let labels = get_labels(&pool, URI, None, None).await?;
+        assert_eq!(labels.len(), 0);
 
         Ok(())
     }

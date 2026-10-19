@@ -40,7 +40,7 @@ chrono = "0.4"
 tokio-cron-scheduler = "0.11"
 tracing-subscriber = "0.3"
 serde_urlencoded = "0.7.1"
-serde_qs = "0.15.0"
+serde_html_form = "0.2.8"
 rand = { version = "0.8", features = ["std", "std_rng"] }
 tower-http = { version = "0.6.8", features = ["fs", "trace"] }
 tower = { version = "0.5.3", features = ["util"] }

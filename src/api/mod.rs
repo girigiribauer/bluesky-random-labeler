@@ -35,10 +35,10 @@ where
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let query = parts.uri.query().unwrap_or("");
-        match serde_qs::from_str(query) {
+        match serde_html_form::from_str(query) {
             Ok(v) => Ok(QsQuery(v)),
             Err(e) => {
-                eprintln!("serde_qs error: {}", e);
+                eprintln!("query parse error: {}", e);
                 Err(axum::http::StatusCode::BAD_REQUEST)
             }
         }

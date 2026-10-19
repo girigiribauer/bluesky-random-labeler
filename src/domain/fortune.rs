@@ -99,6 +99,7 @@ pub fn calculate_fortune(did: &str, date_str: &str) -> Fortune {
 mod tests {
     use super::*;
 
+    /// 決まった DID と日付から、これまでと同じおみくじの結果が出ること（計算方法が変わっていないこと）
     #[test]
     fn test_fortune_consistency() {
         let date = "2026-01-28";
