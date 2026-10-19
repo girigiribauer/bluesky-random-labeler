@@ -51,3 +51,5 @@ tracing = "0.1.44"
 
 [dev-dependencies]
 serde_json = "1.0"
+tokio-tungstenite = "0.24"
+futures-util = "0.3"

@@ -132,4 +132,96 @@ mod tests {
         let body_json: ReportOutput = serde_json::from_slice(&body).unwrap(); // Output matches createReport response type
         assert_eq!(body_json.data.id, 12345);
     }
+
+    async fn spawn_server() -> (std::net::SocketAddr, tokio::sync::broadcast::Sender<(i64, Vec<atrium_api::com::atproto::label::defs::Label>)>) {
+        let pool = init_db(":memory:").await.unwrap();
+        let mut rng = OsRng;
+        let keypair = Arc::new(Secp256k1Keypair::create(&mut rng));
+        let tx = tokio::sync::broadcast::channel(100).0;
+        let state = AppState { pool, keypair, tx: tx.clone() };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
+        (addr, tx)
+    }
+
+    async fn wait_receiver_count<T: Clone>(tx: &tokio::sync::broadcast::Sender<T>, expected: usize) {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while tx.receiver_count() != expected {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("receiver_count stayed {} (expected {})", tx.receiver_count(), expected));
+    }
+
+    async fn connect(addr: std::net::SocketAddr) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
+        let url = format!("ws://{}/xrpc/com.atproto.label.subscribeLabels", addr);
+        tokio_tungstenite::connect_async(url).await.unwrap().0
+    }
+
+    /// クライアントが Close を送って切断したら、ラベルの配信がなくてもサーバー側の接続処理が終わること
+    #[tokio::test]
+    async fn test_subscribe_labels_ends_on_client_close() {
+        let (addr, tx) = spawn_server().await;
+        let mut ws = connect(addr).await;
+        wait_receiver_count(&tx, 1).await;
+
+        ws.close(None).await.unwrap();
+
+        wait_receiver_count(&tx, 0).await;
+    }
+
+    /// クライアントが Close を送らずに TCP ごと切断しても、サーバー側の接続処理が終わること
+    #[tokio::test]
+    async fn test_subscribe_labels_ends_on_client_drop() {
+        let (addr, tx) = spawn_server().await;
+        let ws = connect(addr).await;
+        wait_receiver_count(&tx, 1).await;
+
+        drop(ws);
+
+        wait_receiver_count(&tx, 0).await;
+    }
+
+    /// クライアントの Ping に Pong が返り、接続は保たれること
+    #[tokio::test]
+    async fn test_subscribe_labels_replies_pong() {
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::Message;
+
+        let (addr, tx) = spawn_server().await;
+        let mut ws = connect(addr).await;
+        wait_receiver_count(&tx, 1).await;
+
+        ws.send(Message::Ping(b"hi".to_vec())).await.unwrap();
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(reply, Message::Pong(b"hi".to_vec()));
+        assert_eq!(tx.receiver_count(), 1);
+    }
+
+    /// 接続中のクライアントには、ブロードキャストしたラベルが届くこと
+    #[tokio::test]
+    async fn test_subscribe_labels_delivers_broadcast() {
+        use futures_util::StreamExt;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let (addr, tx) = spawn_server().await;
+        let mut ws = connect(addr).await;
+        wait_receiver_count(&tx, 1).await;
+
+        tx.send((42, vec![])).unwrap();
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+
+        assert!(matches!(msg, Message::Binary(_)));
+    }
 }

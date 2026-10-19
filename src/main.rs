@@ -18,7 +18,7 @@ async fn main() -> anyhow::Result<()> {
     let pool = init_db(&conf.db_path).await?;
 
     let keypair = Arc::new(create_keypair(&conf.signing_key_hex)?);
-    let (tx, _rx) = tokio::sync::broadcast::channel(10000);
+    let (tx, _) = tokio::sync::broadcast::channel(10000);
 
     let pool_clone = pool.clone();
     let keypair_clone = keypair.clone();
