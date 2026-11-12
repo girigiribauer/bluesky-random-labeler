@@ -1,0 +1,10 @@
+.git
+target
+tmp
+data
+.env
+.env.*
+labels.db
+labels.db-shm
+labels.db-wal
+*.log

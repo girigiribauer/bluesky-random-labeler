@@ -1,4 +1,4 @@
-FROM rust:slim-bookworm AS builder
+FROM rust:1.93-slim-bookworm AS builder
 
 WORKDIR /build
 
@@ -19,7 +19,7 @@ RUN rm src/main.rs
 
 COPY . .
 
-RUN cargo build --release
+RUN find src -name '*.rs' -exec touch {} + && cargo build --release
 
 FROM debian:bookworm-slim
 
