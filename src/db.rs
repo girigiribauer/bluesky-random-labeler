@@ -128,6 +128,17 @@ pub async fn query_labels(pool: &DbPool, uris: &[String], cursor: Option<i64>, l
     Ok(rows)
 }
 
+pub async fn labels_after(pool: &DbPool, after: i64, limit: i64) -> Result<Vec<LabelRow>> {
+    let rows = sqlx::query_as::<_, LabelRow>(
+        "SELECT rowid as id, uri, val, cts, neg, src, is_fixed, is_deleted FROM labels WHERE rowid > ? AND is_deleted = 0 ORDER BY rowid ASC LIMIT ?"
+    )
+        .bind(after)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,6 +217,55 @@ mod tests {
 
         let labels = get_labels(&pool, URI, None, None).await?;
         assert_eq!(labels.len(), 0);
+
+        Ok(())
+    }
+
+    /// 指定した番号より後に保存したラベルだけを、保存した順に返すこと
+    #[tokio::test]
+    async fn test_labels_after_returns_later_rows_in_order() -> Result<()> {
+        let pool = init_db(":memory:").await?;
+
+        let first = upsert_label(&pool, URI, "daikichi", CTS, false, SRC, false).await?;
+        upsert_label(&pool, URI, "kichi", CTS, true, SRC, false).await?;
+        upsert_label(&pool, "did:plc:other", "kyo", CTS, false, SRC, false).await?;
+
+        let rows = labels_after(&pool, first, 10).await?;
+        let vals: Vec<_> = rows.iter().map(|r| r.val.as_str()).collect();
+        assert_eq!(vals, vec!["kichi", "kyo"]);
+        assert!(rows[0].id < rows[1].id);
+
+        Ok(())
+    }
+
+    /// 件数の上限を付けると、古いほうからその件数までしか返さないこと
+    #[tokio::test]
+    async fn test_labels_after_respects_limit() -> Result<()> {
+        let pool = init_db(":memory:").await?;
+
+        for val in ["daikichi", "kichi", "chukichi"] {
+            upsert_label(&pool, URI, val, CTS, false, SRC, false).await?;
+        }
+
+        let rows = labels_after(&pool, 0, 2).await?;
+        let vals: Vec<_> = rows.iter().map(|r| r.val.as_str()).collect();
+        assert_eq!(vals, vec!["daikichi", "kichi"]);
+
+        Ok(())
+    }
+
+    /// おみくじを終えた（削除した）URI のラベルは返さないこと
+    #[tokio::test]
+    async fn test_labels_after_skips_deleted() -> Result<()> {
+        let pool = init_db(":memory:").await?;
+
+        upsert_label(&pool, URI, "daikichi", CTS, false, SRC, false).await?;
+        upsert_label(&pool, "did:plc:other", "kyo", CTS, false, SRC, false).await?;
+        delete_label(&pool, URI).await?;
+
+        let rows = labels_after(&pool, 0, 10).await?;
+        let uris: Vec<_> = rows.iter().map(|r| r.uri.as_str()).collect();
+        assert_eq!(uris, vec!["did:plc:other"]);
 
         Ok(())
     }

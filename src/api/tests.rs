@@ -29,6 +29,7 @@ mod tests {
             pool: pool.clone(),
             keypair: keypair.clone(),
             tx: tokio::sync::broadcast::channel(100).0,
+            replay_interval: std::time::Duration::from_millis(1),
         };
 
         // Pre-insert some data
@@ -366,16 +367,32 @@ mod tests {
         assert_eq!(body_json.data.id, 12345);
     }
 
-    async fn spawn_server() -> (std::net::SocketAddr, tokio::sync::broadcast::Sender<(i64, Vec<atrium_api::com::atproto::label::defs::Label>)>) {
+    type LabelTx = tokio::sync::broadcast::Sender<(i64, Vec<atrium_api::com::atproto::label::defs::Label>)>;
+
+    async fn spawn_server() -> (std::net::SocketAddr, LabelTx) {
+        let (addr, tx, _pool) = spawn_server_with_pool().await;
+        (addr, tx)
+    }
+
+    async fn spawn_server_with_pool() -> (std::net::SocketAddr, LabelTx, crate::db::DbPool) {
+        spawn_server_with_replay_interval(std::time::Duration::from_millis(1)).await
+    }
+
+    async fn spawn_server_with_replay_interval(replay_interval: std::time::Duration) -> (std::net::SocketAddr, LabelTx, crate::db::DbPool) {
         let pool = init_db(":memory:").await.unwrap();
         let mut rng = OsRng;
         let keypair = Arc::new(Secp256k1Keypair::create(&mut rng));
         let tx = tokio::sync::broadcast::channel(100).0;
-        let state = AppState { pool, keypair, tx: tx.clone() };
+        let state = AppState {
+            pool: pool.clone(),
+            keypair,
+            tx: tx.clone(),
+            replay_interval,
+        };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, router(state)).await.unwrap() });
-        (addr, tx)
+        (addr, tx, pool)
     }
 
     async fn wait_receiver_count<T: Clone>(tx: &tokio::sync::broadcast::Sender<T>, expected: usize) {
@@ -456,5 +473,175 @@ mod tests {
             .unwrap();
 
         assert!(matches!(msg, Message::Binary(_)));
+    }
+
+    type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+    async fn connect_with_cursor(addr: std::net::SocketAddr, cursor: i64) -> Ws {
+        let url = format!("ws://{}/xrpc/com.atproto.label.subscribeLabels?cursor={}", addr, cursor);
+        tokio_tungstenite::connect_async(url).await.unwrap().0
+    }
+
+    async fn next_frame(ws: &mut Ws) -> (i64, Vec<String>) {
+        use futures_util::StreamExt;
+        use ipld_core::ipld::Ipld;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let Message::Binary(bytes) = msg else { panic!("not a binary frame: {:?}", msg) };
+        let mut reader = std::io::Cursor::new(bytes);
+        let _header: Ipld = serde_ipld_dagcbor::de::from_reader_once(&mut reader).unwrap();
+        let body: Ipld = serde_ipld_dagcbor::de::from_reader_once(&mut reader).unwrap();
+        let Ipld::Map(map) = body else { panic!("body is not a map") };
+        let Some(Ipld::Integer(seq)) = map.get("seq") else { panic!("no seq") };
+        let vals = match map.get("labels") {
+            Some(Ipld::List(labels)) => labels
+                .iter()
+                .filter_map(|l| match l {
+                    Ipld::Map(m) => match m.get("val") {
+                        Some(Ipld::String(v)) => Some(v.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect(),
+            _ => vec![],
+        };
+        (*seq as i64, vals)
+    }
+
+    async fn assert_no_frame(ws: &mut Ws) {
+        use futures_util::StreamExt;
+        let res = tokio::time::timeout(std::time::Duration::from_millis(300), ws.next()).await;
+        assert!(res.is_err(), "unexpected frame: {:?}", res);
+    }
+
+    async fn insert_rows(pool: &crate::db::DbPool, vals: &[&str]) -> Vec<i64> {
+        let now_str = chrono::Utc::now().to_rfc3339();
+        let mut ids = Vec::new();
+        for val in vals {
+            ids.push(db_upsert(pool, "did:plc:replay", val, &now_str, false, "did:plc:labeler", false).await.unwrap());
+        }
+        ids
+    }
+
+    /// cursor を付けてつなぐと、その番号より後に保存したラベルが、番号の小さい順に1件ずつ届くこと
+    #[tokio::test]
+    async fn test_subscribe_labels_replays_after_cursor() {
+        let (addr, _tx, pool) = spawn_server_with_pool().await;
+        let ids = insert_rows(&pool, &["daikichi", "kichi", "chukichi"]).await;
+
+        let mut ws = connect_with_cursor(addr, ids[0]).await;
+
+        assert_eq!(next_frame(&mut ws).await, (ids[1], vec!["kichi".to_string()]));
+        assert_eq!(next_frame(&mut ws).await, (ids[2], vec!["chukichi".to_string()]));
+        assert_no_frame(&mut ws).await;
+    }
+
+    /// cursor を付けずにつなぐと、保存済みのラベルは送り直さず、新しい配信だけが届くこと
+    #[tokio::test]
+    async fn test_subscribe_labels_without_cursor_does_not_replay() {
+        let (addr, tx, pool) = spawn_server_with_pool().await;
+        insert_rows(&pool, &["daikichi", "kichi"]).await;
+
+        let mut ws = connect(addr).await;
+        wait_receiver_count(&tx, 1).await;
+        tx.send((100, vec![])).unwrap();
+
+        assert_eq!(next_frame(&mut ws).await.0, 100);
+    }
+
+    /// 送り直し終えたあとは、送り直した分と同じ番号の配信は二度送らず、それより新しい配信は届くこと
+    #[tokio::test]
+    async fn test_subscribe_labels_skips_already_replayed_broadcast() {
+        let (addr, tx, pool) = spawn_server_with_pool().await;
+        let ids = insert_rows(&pool, &["daikichi", "kichi"]).await;
+
+        let mut ws = connect_with_cursor(addr, 0).await;
+        assert_eq!(next_frame(&mut ws).await.0, ids[0]);
+        assert_eq!(next_frame(&mut ws).await.0, ids[1]);
+        assert_no_frame(&mut ws).await;
+
+        tx.send((ids[1], vec![])).unwrap();
+        tx.send((ids[1] + 1, vec![])).unwrap();
+
+        assert_eq!(next_frame(&mut ws).await.0, ids[1] + 1);
+    }
+
+    /// 送り直しの途中に配信されたラベルは、その場では送らず、送り直しの流れの中で番号の順に1回だけ届くこと
+    #[tokio::test]
+    async fn test_subscribe_labels_broadcast_during_replay_arrives_in_order() {
+        let (addr, tx, pool) = spawn_server_with_replay_interval(std::time::Duration::from_millis(300)).await;
+        let ids = insert_rows(&pool, &["daikichi", "kichi"]).await;
+
+        let mut ws = connect_with_cursor(addr, 0).await;
+        assert_eq!(next_frame(&mut ws).await.0, ids[0]);
+
+        let later = insert_rows(&pool, &["chukichi"]).await;
+        tx.send((later[0], vec![])).unwrap();
+
+        let rest = vec![next_frame(&mut ws).await.0, next_frame(&mut ws).await.0];
+        assert_eq!(rest, vec![ids[1], later[0]]);
+        assert_no_frame(&mut ws).await;
+    }
+
+    /// 送り直しの途中でも、番号0の配信（フォローをやめた人の取り消し）はその場で届くこと
+    #[tokio::test]
+    async fn test_subscribe_labels_sends_seq_zero_during_replay() {
+        let (addr, tx, pool) = spawn_server_with_replay_interval(std::time::Duration::from_millis(300)).await;
+        let ids = insert_rows(&pool, &["daikichi", "kichi"]).await;
+
+        let mut ws = connect_with_cursor(addr, 0).await;
+        assert_eq!(next_frame(&mut ws).await.0, ids[0]);
+
+        tx.send((0, vec![])).unwrap();
+
+        assert_eq!(next_frame(&mut ws).await.0, 0);
+        assert_eq!(next_frame(&mut ws).await.0, ids[1]);
+    }
+
+    /// 送り直しをしていない接続では、前と同じ番号の配信でも捨てずに届くこと
+    #[tokio::test]
+    async fn test_subscribe_labels_without_replay_delivers_same_seq_again() {
+        let (addr, tx) = spawn_server().await;
+        let mut ws = connect(addr).await;
+        wait_receiver_count(&tx, 1).await;
+
+        tx.send((7, vec![])).unwrap();
+        tx.send((7, vec![])).unwrap();
+
+        assert_eq!(next_frame(&mut ws).await.0, 7);
+        assert_eq!(next_frame(&mut ws).await.0, 7);
+    }
+
+    /// 送り直したラベルには署名が付き、保存したときの値と打ち消しの有無がそのまま入っていること
+    #[tokio::test]
+    async fn test_subscribe_labels_replayed_label_is_signed() {
+        use futures_util::StreamExt;
+        use ipld_core::ipld::Ipld;
+        use tokio_tungstenite::tungstenite::Message;
+
+        let (addr, _tx, pool) = spawn_server_with_pool().await;
+        let now_str = chrono::Utc::now().to_rfc3339();
+        db_upsert(&pool, "did:plc:replay", "kyo", &now_str, true, "did:plc:labeler", false).await.unwrap();
+
+        let mut ws = connect_with_cursor(addr, 0).await;
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next()).await.unwrap().unwrap().unwrap();
+        let Message::Binary(bytes) = msg else { panic!("not a binary frame") };
+        let mut reader = std::io::Cursor::new(bytes);
+        let _header: Ipld = serde_ipld_dagcbor::de::from_reader_once(&mut reader).unwrap();
+        let body: Ipld = serde_ipld_dagcbor::de::from_reader_once(&mut reader).unwrap();
+        let Ipld::Map(map) = body else { panic!("body is not a map") };
+        let Some(Ipld::List(labels)) = map.get("labels") else { panic!("no labels") };
+        let Ipld::Map(label) = &labels[0] else { panic!("label is not a map") };
+
+        assert_eq!(label.get("val"), Some(&Ipld::String("kyo".to_string())));
+        assert_eq!(label.get("neg"), Some(&Ipld::Bool(true)));
+        assert_eq!(label.get("uri"), Some(&Ipld::String("did:plc:replay".to_string())));
+        assert!(matches!(label.get("sig"), Some(Ipld::Bytes(sig)) if !sig.is_empty()));
     }
 }

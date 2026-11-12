@@ -69,6 +69,7 @@ async fn main() -> anyhow::Result<()> {
         pool,
         keypair,
         tx,
+        replay_interval: std::time::Duration::from_millis(500),
     };
 
     let app = router(state);

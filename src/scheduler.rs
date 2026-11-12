@@ -17,7 +17,11 @@ use tokio::sync::broadcast;
 use atrium_api::com::atproto::label::defs::Label;
 
 use std::sync::Arc;
+use std::time::Duration;
 use tracing;
+
+const ASSIGN_INTERVAL: Duration = Duration::from_millis(3500);
+const REVOKE_INTERVAL: Duration = Duration::from_millis(500);
 
 pub async fn run_optimized_batch(pool: DbPool, tx: broadcast::Sender<(i64, Vec<Label>)>) -> Result<()> {
     tracing::info!("Running optimized batch");
@@ -71,7 +75,7 @@ pub async fn run_optimized_batch(pool: DbPool, tx: broadcast::Sender<(i64, Vec<L
         if let Err(e) = assign_fortune(did, Some(handle), &pool, &keypair, &conf.labeler_did, &tx).await {
             tracing::error!(did, error = ?e, "Error assigning fortune");
         }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(ASSIGN_INTERVAL).await;
     }
 
     for did in local_dids {
@@ -79,7 +83,7 @@ pub async fn run_optimized_batch(pool: DbPool, tx: broadcast::Sender<(i64, Vec<L
             if let Err(e) = revoke_fortune(&did, &pool, &keypair, &config().labeler_did, &tx).await {
                 tracing::error!(did, error = ?e, "Error revoking fortune");
             }
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            tokio::time::sleep(REVOKE_INTERVAL).await;
         }
     }
 
