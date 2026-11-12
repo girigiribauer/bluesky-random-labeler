@@ -17,6 +17,23 @@ mod tests {
     use std::sync::Arc;
     use rand::rngs::OsRng;
 
+    const TARGET_DID: &str = "did:plc:target";
+    const OTHER_DID: &str = "did:plc:other";
+
+    fn reporter_keypair(seed: u8) -> Secp256k1Keypair {
+        Secp256k1Keypair::import(&[seed; 32]).unwrap()
+    }
+
+    fn report_token(issuer: &str, seed: u8) -> String {
+        let claims = serde_json::json!({
+            "iss": issuer,
+            "aud": crate::config::config().labeler_did,
+            "exp": chrono::Utc::now().timestamp() + 60,
+            "lxm": "com.atproto.moderation.createReport",
+        });
+        crate::auth::test_support::make_token(&reporter_keypair(seed), "ES256K", claims)
+    }
+
     async fn setup_app() -> Router {
         setup_app_with_pool().await.0
     }
@@ -30,6 +47,10 @@ mod tests {
             keypair: keypair.clone(),
             tx: tokio::sync::broadcast::channel(100).0,
             replay_interval: std::time::Duration::from_millis(1),
+            key_resolver: crate::auth::test_support::resolver_for(&[
+                (TARGET_DID, &reporter_keypair(1)),
+                (OTHER_DID, &reporter_keypair(2)),
+            ]),
         };
 
         // Pre-insert some data
@@ -250,27 +271,43 @@ mod tests {
         assert_eq!(uris.iter().filter(|u| *u == "did:plc:test").count(), 1);
     }
 
-    async fn post_report(app: &Router, reason: &str) {
+    fn set_test_env() {
         unsafe {
             std::env::set_var("LABELER_DID", "did:plc:test");
             std::env::set_var("SIGNING_KEY", "0000000000000000000000000000000000000000000000000000000000000000");
         }
+    }
+
+    async fn send_report(app: &Router, reason: &str, token: Option<String>) -> axum::response::Response {
+        let subject = serde_json::json!({
+            "$type": "com.atproto.repo.strongRef",
+            "uri": "at://did:plc:target/app.bsky.feed.post/3juv3456789",
+            "cid": "bafyreibnoelefnzgwbcacyt4vh52ymxvzbjq7mmqhtcnwarfq4lzegsiqe"
+        });
+        send_report_about(app, reason, token, subject).await
+    }
+
+    async fn send_report_about(app: &Router, reason: &str, token: Option<String>, subject: Value) -> axum::response::Response {
+        set_test_env();
         let payload = serde_json::json!({
             "reasonType": "com.atproto.moderation.defs#reasonOther",
             "reason": reason,
-            "subject": {
-                "$type": "com.atproto.repo.strongRef",
-                "uri": "at://did:plc:target/app.bsky.feed.post/3juv3456789",
-                "cid": "bafyreibnoelefnzgwbcacyt4vh52ymxvzbjq7mmqhtcnwarfq4lzegsiqe"
-            }
+            "subject": subject
         });
-        let req = Request::builder()
+        let mut req = Request::builder()
             .method("POST")
             .uri("/xrpc/com.atproto.moderation.createReport")
-            .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_vec(&payload).unwrap()))
-            .unwrap();
-        let response = app.clone().oneshot(req).await.unwrap();
+            .header("Content-Type", "application/json");
+        if let Some(token) = token {
+            req = req.header("Authorization", token);
+        }
+        let req = req.body(Body::from(serde_json::to_vec(&payload).unwrap())).unwrap();
+        app.clone().oneshot(req).await.unwrap()
+    }
+
+    async fn post_report(app: &Router, reason: &str) {
+        set_test_env();
+        let response = send_report(app, reason, Some(report_token(TARGET_DID, 1))).await;
         assert_eq!(response.status(), StatusCode::OK);
     }
 
@@ -297,6 +334,54 @@ mod tests {
         post_report(&app, "大吉にして").await;
 
         assert_eq!(positive_vals(&pool, "did:plc:target").await, vec!["daikichi"]);
+    }
+
+    /// 投稿ではなく自分のアカウントそのものを通報しても、自分のおみくじが書き換わること
+    #[tokio::test]
+    async fn test_create_report_for_own_account_overwrites_fortune() {
+        let (app, pool) = setup_app_with_pool().await;
+        set_test_env();
+        let subject = serde_json::json!({ "$type": "com.atproto.admin.defs#repoRef", "did": TARGET_DID });
+
+        let response = send_report_about(&app, "大吉にして", Some(report_token(TARGET_DID, 1)), subject).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(positive_vals(&pool, TARGET_DID).await, vec!["daikichi"]);
+    }
+
+    /// 送り主の証明が付いていない通報は 401 で断り、おみくじを書き換えないこと
+    #[tokio::test]
+    async fn test_create_report_without_auth_is_rejected() {
+        let (app, pool) = setup_app_with_pool().await;
+
+        let response = send_report(&app, "大吉にして", None).await;
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(positive_vals(&pool, TARGET_DID).await.is_empty());
+    }
+
+    /// 送り主の証明が偽物（別の鍵で署名）の通報は 401 で断り、おみくじを書き換えないこと
+    #[tokio::test]
+    async fn test_create_report_with_forged_auth_is_rejected() {
+        let (app, pool) = setup_app_with_pool().await;
+        set_test_env();
+
+        let response = send_report(&app, "大吉にして", Some(report_token(TARGET_DID, 9))).await;
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(positive_vals(&pool, TARGET_DID).await.is_empty());
+    }
+
+    /// 正しい証明があっても、自分以外の人を通報したときは、その人のおみくじを書き換えないこと
+    #[tokio::test]
+    async fn test_create_report_for_someone_else_changes_nothing() {
+        let (app, pool) = setup_app_with_pool().await;
+        set_test_env();
+
+        let response = send_report(&app, "大凶にして", Some(report_token(OTHER_DID, 2))).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(positive_vals(&pool, TARGET_DID).await.is_empty());
     }
 
     /// 理由におみくじの言葉がない通報では、おみくじを書き換えないこと
@@ -329,35 +414,15 @@ mod tests {
         assert_eq!(body_json["version"], "0.0.0");
     }
 
-    /// おみくじの言葉を含む通報を受け付けたとき、200 と通報の受付結果を返すこと
+    /// おみくじの言葉を含む通報を受け付けたとき、200 と、送り主の DID が入った受付結果を返すこと
     #[tokio::test]
     async fn test_create_report() {
         // Ensure config is loaded or env vars set (Mocking env for test safety if not loaded)
-        unsafe {
-            std::env::set_var("LABELER_DID", "did:plc:test");
-            std::env::set_var("SIGNING_KEY", "0000000000000000000000000000000000000000000000000000000000000000");
-        }
+        set_test_env();
 
         let app = setup_app().await;
 
-        let payload = serde_json::json!({
-            "reasonType": "com.atproto.moderation.defs#reasonSpam",
-            "reason": "Test report with keyword: daikichi",
-            "subject": {
-                "$type": "com.atproto.repo.strongRef",
-                "uri": "at://did:plc:target/app.bsky.feed.post/3juv3456789",
-                "cid": "bafyreibnoelefnzgwbcacyt4vh52ymxvzbjq7mmqhtcnwarfq4lzegsiqe"
-            }
-        });
-
-        let req = Request::builder()
-            .method("POST")
-            .uri("/xrpc/com.atproto.moderation.createReport")
-            .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_vec(&payload).unwrap()))
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
+        let response = send_report(&app, "Test report with keyword: daikichi", Some(report_token(TARGET_DID, 1))).await;
 
         // Should be 200 OK even if logic runs
         assert_eq!(response.status(), StatusCode::OK);
@@ -365,6 +430,7 @@ mod tests {
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let body_json: ReportOutput = serde_json::from_slice(&body).unwrap(); // Output matches createReport response type
         assert_eq!(body_json.data.id, 12345);
+        assert_eq!(body_json.data.reported_by.as_str(), TARGET_DID);
     }
 
     type LabelTx = tokio::sync::broadcast::Sender<(i64, Vec<atrium_api::com::atproto::label::defs::Label>)>;
@@ -388,6 +454,7 @@ mod tests {
             keypair,
             tx: tx.clone(),
             replay_interval,
+            key_resolver: crate::auth::test_support::resolver_for(&[]),
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

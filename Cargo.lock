@@ -310,6 +310,7 @@ dependencies = [
  "atrium-crypto",
  "atrium-xrpc-client",
  "axum",
+ "base64",
  "chrono",
  "cid",
  "dotenvy",

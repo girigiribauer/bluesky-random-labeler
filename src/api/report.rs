@@ -1,6 +1,9 @@
 use axum::{Json, extract::State};
-use atrium_api::com::atproto::moderation::create_report::{Input, Output, OutputSubjectRefs, OutputData};
+use axum::http::{HeaderMap, StatusCode, header::AUTHORIZATION};
+use axum::response::{IntoResponse, Response};
+use atrium_api::com::atproto::moderation::create_report::{Input, OutputSubjectRefs, OutputData};
 use chrono::FixedOffset;
+use crate::auth::verify_service_auth;
 use crate::state::AppState;
 use crate::config::config;
 use crate::domain::fortune::FORTUNES;
@@ -12,12 +15,33 @@ use cid::Cid;
 use std::str::FromStr;
 use tracing;
 
+const CREATE_REPORT_METHOD: &str = "com.atproto.moderation.createReport";
+
 pub async fn create_report(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(input): Json<Input>,
-) -> Json<Output> {
+) -> Response {
 use atrium_api::com::atproto::moderation::create_report::InputSubjectRefs;
 use atrium_api::types::Union;
+
+    let authorization = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
+    let reporter = match verify_service_auth(
+        authorization,
+        &config().labeler_did,
+        CREATE_REPORT_METHOD,
+        &state.key_resolver,
+        chrono::Utc::now().timestamp(),
+    ).await {
+        Ok(did) => did,
+        Err(e) => {
+            tracing::warn!(error = %e, "Report rejected: authentication failed");
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "AuthenticationRequired", "message": e.to_string() })),
+            ).into_response();
+        }
+    };
 
     if let Some(reason) = &input.reason {
         let mut best_match: Option<&str> = None;
@@ -52,7 +76,9 @@ use atrium_api::types::Union;
                 _ => None,
             };
 
-            if let Some(did_str) = did {
+            if let Some(did_str) = did.filter(|d| *d != reporter) {
+                tracing::info!(val, did = did_str, reporter = %reporter, "Gimmick: Ignored report for someone else");
+            } else if let Some(did_str) = did {
                 tracing::info!(val, did = did_str, "Gimmick Triggered! Forcing fortune");
                 if let Err(e) = overwrite_fortune(
                     did_str,
@@ -93,12 +119,13 @@ use atrium_api::types::Union;
     };
 
     let now = chrono::Utc::now().with_timezone(&FixedOffset::east_opt(0).unwrap());
-    Json(OutputData {
+    let reported_by = Did::new(reporter).unwrap_or_else(|_| Did::new("did:plc:unknown".to_string()).unwrap());
+    Json::<atrium_api::com::atproto::moderation::create_report::Output>(OutputData {
         created_at: Datetime::new(now),
         id: 12345, // Dummy ID
         reason: input.reason.clone(),
         reason_type: input.reason_type.clone(),
-        reported_by: Did::new("did:plc:unknown".to_string()).unwrap(),
+        reported_by,
         subject: Union::Refs(subject),
-    }.into())
+    }.into()).into_response()
 }

@@ -70,6 +70,7 @@ async fn main() -> anyhow::Result<()> {
         keypair,
         tx,
         replay_interval: std::time::Duration::from_millis(500),
+        key_resolver: omikuji::auth::KeyResolver::Network,
     };
 
     let app = router(state);
