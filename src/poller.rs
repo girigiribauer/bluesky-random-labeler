@@ -11,6 +11,7 @@ use atrium_api::com::atproto::label::defs::Label;
 use crate::domain::labeling::assign_fortune;
 use std::sync::Arc;
 use atrium_api::agent::atp_agent::store::MemorySessionStore;
+use crate::retry::retry_until_ok;
 
 pub async fn start_polling(
     pool: DbPool,
@@ -23,7 +24,7 @@ pub async fn start_polling(
     if let Some(pwd) = &conf.labeler_password {
         let identifier = conf.handle.as_deref().unwrap_or(&conf.labeler_did);
         tracing::info!(identifier, "Attempting login");
-        agent.login(identifier, pwd).await?;
+        retry_until_ok("login", || agent.login(identifier, pwd)).await;
         tracing::info!("Bot logged in");
     } else {
         tracing::warn!("No password provided, skipping bot login (polling will fail).");
@@ -39,7 +40,8 @@ pub async fn start_polling(
                     last_seen_at = Some(t);
                 }
             }
-            Err(_e) => {
+            Err(e) => {
+                tracing::warn!(error = ?e, "Polling failed");
             }
         }
         sleep(Duration::from_secs(10)).await;

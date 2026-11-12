@@ -7,6 +7,7 @@ use crate::domain::labeling::{assign_fortune, revoke_fortune, overwrite_fortune}
 use crate::domain::fortune::Fortune;
 use std::str::FromStr;
 use crate::crypto::create_keypair;
+use crate::retry::retry_until_ok;
 
 use sqlx::Row;
 
@@ -24,7 +25,8 @@ pub async fn run_optimized_batch(pool: DbPool, tx: broadcast::Sender<(i64, Vec<L
     let agent = AtpAgent::new(ReqwestClient::new("https://bsky.social"), MemorySessionStore::default());
 
     if let Some(pwd) = &conf.labeler_password {
-        agent.login(conf.handle.as_deref().unwrap_or(&conf.labeler_did), pwd).await?;
+        let identifier = conf.handle.as_deref().unwrap_or(&conf.labeler_did);
+        retry_until_ok("login", || agent.login(identifier, pwd)).await;
     } else {
         tracing::info!("Skipping batch due to missing password.");
         return Ok(());

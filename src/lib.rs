@@ -4,6 +4,7 @@ pub mod db;
 pub mod domain;
 pub mod crypto;
 pub mod poller;
+pub mod retry;
 pub mod scheduler;
 pub mod state;
 
