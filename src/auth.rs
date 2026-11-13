@@ -373,12 +373,27 @@ mod tests {
         assert_eq!(atproto_key(&doc), None);
     }
 
-    /// DID の種類に応じて、DID 文書を読みに行く先を決めること
+    /// did:plc の DID 文書は、plc.directory に読みに行くこと
     #[test]
-    fn test_did_document_url() {
+    fn test_did_document_url_for_plc() {
         assert_eq!(did_document_url("did:plc:abc"), Some("https://plc.directory/did:plc:abc".to_string()));
+    }
+
+    /// did:web の DID 文書は、そのドメインの .well-known/did.json に読みに行くこと
+    #[test]
+    fn test_did_document_url_for_web() {
         assert_eq!(did_document_url("did:web:example.com"), Some("https://example.com/.well-known/did.json".to_string()));
+    }
+
+    /// ポート番号などが付いた did:web は、読みに行かないこと
+    #[test]
+    fn test_did_document_url_for_web_with_port() {
         assert_eq!(did_document_url("did:web:example.com:8080"), None);
+    }
+
+    /// did:plc と did:web 以外の DID は、読みに行かないこと
+    #[test]
+    fn test_did_document_url_for_other_method() {
         assert_eq!(did_document_url("did:key:z123"), None);
     }
 }

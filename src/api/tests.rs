@@ -24,14 +24,22 @@ mod tests {
         Secp256k1Keypair::import(&[seed; 32]).unwrap()
     }
 
-    fn report_token(issuer: &str, seed: u8) -> String {
+    fn token_for(issuer: &str, seed: u8, method: &str) -> String {
         let claims = serde_json::json!({
             "iss": issuer,
             "aud": crate::config::config().labeler_did,
             "exp": chrono::Utc::now().timestamp() + 60,
-            "lxm": "com.atproto.moderation.createReport",
+            "lxm": method,
         });
         crate::auth::test_support::make_token(&reporter_keypair(seed), "ES256K", claims)
+    }
+
+    fn report_token(issuer: &str, seed: u8) -> String {
+        token_for(issuer, seed, "com.atproto.moderation.createReport")
+    }
+
+    fn appeal_token(issuer: &str, seed: u8) -> String {
+        token_for(issuer, seed, "tools.ozone.inbox.appealActionedSubject")
     }
 
     async fn setup_app() -> Router {
@@ -392,6 +400,130 @@ mod tests {
         post_report(&app, "ただの通報です").await;
 
         assert!(positive_vals(&pool, "did:plc:target").await.is_empty());
+    }
+
+    async fn send_appeal(app: &Router, subject_did: &str, reason: &str, token: Option<String>) -> (StatusCode, Value) {
+        set_test_env();
+        let payload = serde_json::json!({
+            "subject": { "$type": "com.atproto.admin.defs#repoRef", "did": subject_did },
+            "action": { "$type": "tools.ozone.inbox.appealActionedSubject#labelRef", "val": "suekichi" },
+            "reason": reason,
+            "modTool": { "name": "bsky-app" }
+        });
+        let mut req = Request::builder()
+            .method("POST")
+            .uri("/xrpc/tools.ozone.inbox.appealActionedSubject")
+            .header("Content-Type", "application/json");
+        if let Some(token) = token {
+            req = req.header("Authorization", token);
+        }
+        let req = req.body(Body::from(serde_json::to_vec(&payload).unwrap())).unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (status, serde_json::from_slice(&body).unwrap_or(Value::Null))
+    }
+
+    /// アプリと同じ形で自分のラベルに Appeal すると、理由の運勢に書き換わること
+    #[tokio::test]
+    async fn test_appeal_overwrites_own_fortune() {
+        let (app, pool) = setup_app_with_pool().await;
+        set_test_env();
+
+        let (status, _) = send_appeal(&app, TARGET_DID, "大吉！", Some(appeal_token(TARGET_DID, 1))).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(positive_vals(&pool, TARGET_DID).await, vec!["daikichi"]);
+    }
+
+    /// Appeal の返事は、決まりの形（送り先・対象・状態・既読・日時）で、書き換え後のラベルを含むこと
+    #[tokio::test]
+    async fn test_appeal_returns_subject_view() {
+        let (app, _pool) = setup_app_with_pool().await;
+        set_test_env();
+
+        let (_, body) = send_appeal(&app, TARGET_DID, "大吉！", Some(appeal_token(TARGET_DID, 1))).await;
+
+        assert_eq!(body["src"], crate::config::config().labeler_did);
+        assert_eq!(body["subject"]["did"], TARGET_DID);
+        assert_eq!(body["enforcement"]["state"], "labeled");
+        assert_eq!(body["enforcement"]["labels"], serde_json::json!(["daikichi"]));
+        assert_eq!(body["appeal"]["outcome"], "approved");
+        assert_eq!(body["isRead"], true);
+        assert!(body["createdAt"].is_string());
+        assert!(body["updatedAt"].is_string());
+    }
+
+    /// 送り主の証明が付いていない Appeal は 401 で断り、おみくじを書き換えないこと
+    #[tokio::test]
+    async fn test_appeal_without_auth_is_rejected() {
+        let (app, pool) = setup_app_with_pool().await;
+
+        let (status, _) = send_appeal(&app, TARGET_DID, "大吉！", None).await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(positive_vals(&pool, TARGET_DID).await.is_empty());
+    }
+
+    /// 通報（createReport）向けの証明を Appeal に使い回すと、401 で断ること
+    #[tokio::test]
+    async fn test_appeal_with_report_token_is_rejected() {
+        let (app, pool) = setup_app_with_pool().await;
+        set_test_env();
+
+        let (status, _) = send_appeal(&app, TARGET_DID, "大吉！", Some(report_token(TARGET_DID, 1))).await;
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(positive_vals(&pool, TARGET_DID).await.is_empty());
+    }
+
+    /// 自分以外の人を対象にした Appeal は、決まりのエラー（InvalidAppealSubject）で断り、その人のおみくじを書き換えないこと
+    #[tokio::test]
+    async fn test_appeal_for_someone_else_is_rejected() {
+        let (app, pool) = setup_app_with_pool().await;
+        set_test_env();
+
+        let (status, body) = send_appeal(&app, TARGET_DID, "大凶！", Some(appeal_token(OTHER_DID, 2))).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"], "InvalidAppealSubject");
+        assert!(positive_vals(&pool, TARGET_DID).await.is_empty());
+    }
+
+    /// 対象がアカウントでも投稿でもない書き方の Appeal は、決まりのエラー（InvalidAppealSubject）で断ること
+    #[tokio::test]
+    async fn test_appeal_with_unknown_subject_type_is_rejected() {
+        let (app, pool) = setup_app_with_pool().await;
+        set_test_env();
+        let payload = serde_json::json!({
+            "subject": { "$type": "app.bsky.actor.defs#profileView", "did": TARGET_DID },
+            "reason": "大吉！"
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/xrpc/tools.ozone.inbox.appealActionedSubject")
+            .header("Content-Type", "application/json")
+            .header("Authorization", appeal_token(TARGET_DID, 1))
+            .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert!(positive_vals(&pool, TARGET_DID).await.is_empty());
+    }
+
+    /// 理由に運勢の言葉がない Appeal は受け付けるが、おみくじは書き換えず、却下として返すこと
+    #[tokio::test]
+    async fn test_appeal_without_fortune_word_changes_nothing() {
+        let (app, pool) = setup_app_with_pool().await;
+        set_test_env();
+
+        let (status, body) = send_appeal(&app, TARGET_DID, "おかしいと思います", Some(appeal_token(TARGET_DID, 1))).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["appeal"]["outcome"], "denied");
+        assert!(positive_vals(&pool, TARGET_DID).await.is_empty());
     }
 
     /// 死活確認の窓口が 200 とバージョンを返すこと

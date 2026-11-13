@@ -7,6 +7,7 @@ use axum::{
 };
 use serde::de::DeserializeOwned;
 
+pub mod appeal;
 pub mod label;
 pub mod report;
 pub mod websocket;
@@ -21,6 +22,7 @@ pub fn router(state: AppState) -> Router {
         .route("/xrpc/com.atproto.label.queryLabels", get(label::query_labels))
         .route("/xrpc/com.atproto.label.subscribeLabels", get(websocket::subscribe_labels))
         .route("/xrpc/com.atproto.moderation.createReport", post(report::create_report))
+        .route("/xrpc/tools.ozone.inbox.appealActionedSubject", post(appeal::appeal_actioned_subject))
         .route("/xrpc/_health", get(|| async { axum::Json(serde_json::json!({ "version": "0.0.0" })) }))
         .with_state(state)
 }

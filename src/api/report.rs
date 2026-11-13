@@ -1,13 +1,10 @@
 use axum::{Json, extract::State};
-use axum::http::{HeaderMap, StatusCode, header::AUTHORIZATION};
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use atrium_api::com::atproto::moderation::create_report::{Input, OutputSubjectRefs, OutputData};
 use chrono::FixedOffset;
-use crate::auth::verify_service_auth;
+use crate::api::appeal::{apply_self_appeal, authenticate, did_of_uri};
 use crate::state::AppState;
-use crate::config::config;
-use crate::domain::fortune::FORTUNES;
-use crate::domain::labeling::overwrite_fortune;
 use atrium_api::types::string::{Did, Datetime};
 use atrium_api::com::atproto::repo::strong_ref::MainData;
 use ipld_core::ipld::Ipld;
@@ -25,82 +22,17 @@ pub async fn create_report(
 use atrium_api::com::atproto::moderation::create_report::InputSubjectRefs;
 use atrium_api::types::Union;
 
-    let authorization = headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok());
-    let reporter = match verify_service_auth(
-        authorization,
-        &config().labeler_did,
-        CREATE_REPORT_METHOD,
-        &state.key_resolver,
-        chrono::Utc::now().timestamp(),
-    ).await {
+    let reporter = match authenticate(&headers, CREATE_REPORT_METHOD, &state).await {
         Ok(did) => did,
-        Err(e) => {
-            tracing::warn!(error = %e, "Report rejected: authentication failed");
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "AuthenticationRequired", "message": e.to_string() })),
-            ).into_response();
-        }
+        Err(response) => return response,
     };
 
-    if let Some(reason) = &input.reason {
-        let mut best_match: Option<&str> = None;
-        let mut best_len = 0;
-
-        for f in FORTUNES {
-            if reason.contains(f.val.as_str()) {
-                if f.val.as_str().len() > best_len {
-                    best_match = Some(f.val.as_str());
-                    best_len = f.val.as_str().len();
-                }
-            }
-            if reason.contains(f.label) {
-                if f.label.len() > best_len {
-                    best_match = Some(f.val.as_str());
-                    best_len = f.label.len();
-                }
-            }
-        }
-
-        if let Some(val) = best_match {
-            let did = match &input.subject {
-                Union::Refs(InputSubjectRefs::ComAtprotoAdminDefsRepoRef(r)) => Some(r.did.as_str()),
-                Union::Refs(InputSubjectRefs::ComAtprotoRepoStrongRefMain(r)) => match atrium_api::types::string::Did::new(r.uri.clone()) {
-                     Ok(_) => Some(r.uri.as_str()),
-                     _ => if r.uri.starts_with("at://") {
-                         r.uri.split('/').nth(2)
-                     } else {
-                         None
-                     }
-                },
-                _ => None,
-            };
-
-            if let Some(did_str) = did.filter(|d| *d != reporter) {
-                tracing::info!(val, did = did_str, reporter = %reporter, "Gimmick: Ignored report for someone else");
-            } else if let Some(did_str) = did {
-                tracing::info!(val, did = did_str, "Gimmick Triggered! Forcing fortune");
-                if let Err(e) = overwrite_fortune(
-                    did_str,
-                    val,
-                    &state.pool,
-                    &state.keypair,
-                    &config().labeler_did,
-                    &state.tx
-                ).await {
-                    tracing::error!(error = ?e, "Failed to overwrite fortune");
-                } else {
-                    tracing::info!("Fortune overwritten successfully");
-                }
-            } else {
-                tracing::warn!("Gimmick: Failed to extract DID from subject");
-            }
-        } else {
-            tracing::debug!(reason, "Gimmick: No matching fortune keyword found");
-        }
-    } else {
-        tracing::debug!("Gimmick: No reason provided in report");
-    }
+    let did = match &input.subject {
+        Union::Refs(InputSubjectRefs::ComAtprotoAdminDefsRepoRef(r)) => Some(r.did.as_str()),
+        Union::Refs(InputSubjectRefs::ComAtprotoRepoStrongRefMain(r)) => did_of_uri(&r.uri),
+        _ => None,
+    };
+    apply_self_appeal(&state, &reporter, did, input.reason.as_deref()).await;
 
     let subject = match &input.subject {
         Union::Refs(InputSubjectRefs::ComAtprotoAdminDefsRepoRef(r)) => OutputSubjectRefs::ComAtprotoAdminDefsRepoRef(r.clone()),
